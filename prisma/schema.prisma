@@ -1,0 +1,241 @@
+enum ProductStatus {
+  available
+  rented
+  unavailable
+}
+
+enum RentalRequestStatus {
+  pending
+  accepted
+  rejected
+  completed
+  cancelled
+  paid
+  active
+  returned
+}
+
+enum PaymentStatus {
+  pending
+  completed
+  failed
+  refunded
+}
+
+enum InvoiceStatus {
+  pending
+  sent
+  paid
+  overdue
+  cancelled
+}
+
+enum ReturnStatus {
+  initiated
+  in_progress
+  completed
+  cancelled
+}
+
+enum DamageSeverity {
+  minor
+  moderate
+  major
+}
+
+enum InvoiceItemType {
+  rental_fee
+  tax
+  late_fee
+  damage_fee
+  additional_charge
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String            @id @default(cuid())
+  name             String
+  email            String            @unique
+  password         String
+  profile_photo    String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  products         Product[]
+  rentalRequests   RentalRequest[]
+  invoiceDownloads InvoiceDownload[]
+  notifications    Notification[]
+  wishlists        Wishlist[]
+}
+
+model Product {
+  id             String          @id @default(cuid())
+  user_id        String
+  title          String
+  description    String?
+  category       String
+  rental_price   Float
+  location       String
+  status         ProductStatus   @default(available)
+  image_url      String[]
+  created_at     DateTime        @default(now())
+  user           User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  rentalRequests RentalRequest[]
+  wishlists      Wishlist[]
+}
+
+model RentalRequest {
+  id              String             @id @default(cuid())
+  product_id      String
+  customer_id     String
+  start_date      DateTime
+  end_date        DateTime
+  status          RentalRequestStatus @default(pending)
+  price           Float
+  rental_period   Int
+  pickup_location String
+  return_location String
+  created_at      DateTime           @default(now())
+  invoice         Invoice?
+  payment         Payment?
+  productReturn   ProductReturn?
+  customer        User               @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  product         Product            @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  notifications   Notification[]
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  rental_request_id String        @unique
+  payment_method    String
+  amount            Float
+  payment_status    PaymentStatus @default(pending)
+  transaction_id    String?
+  notes             String?
+  payment_date      DateTime?
+  created_at        DateTime      @default(now())
+  rentalRequest     RentalRequest @relation(fields: [rental_request_id], references: [id], onDelete: Cascade)
+}
+
+model Invoice {
+  id                 String            @id @default(cuid())
+  rental_request_id  String            @unique
+  invoice_number     String            @unique
+  amount             Float
+  tax_rate           Float             @default(0.1)
+  tax_amount         Float
+  subtotal           Float
+  late_fee           Float             @default(0)
+  damage_fee         Float             @default(0)
+  additional_charges Float             @default(0)
+  invoice_status     InvoiceStatus     @default(pending)
+  due_date           DateTime
+  paid_date          DateTime?
+  notes              String?
+  created_at         DateTime          @default(now())
+  updated_at         DateTime          @updatedAt
+  rentalRequest      RentalRequest     @relation(fields: [rental_request_id], references: [id], onDelete: Cascade)
+  invoiceItems       InvoiceItem[]
+  invoiceDownloads   InvoiceDownload[]
+}
+
+model InvoiceItem {
+  id          String          @id @default(cuid())
+  invoice_id  String
+  description String
+  quantity    Int
+  unit_price  Float
+  total_price Float
+  item_type   InvoiceItemType
+  invoice     Invoice         @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+
+  @@unique([invoice_id, item_type])
+}
+
+model ProductReturn {
+  id                 String        @id @default(cuid())
+  rental_request_id  String        @unique
+  return_date        DateTime
+  return_location    String
+  return_status      ReturnStatus  @default(initiated)
+  condition_notes    String?
+  customer_signature String?
+  owner_confirmation Boolean       @default(false)
+  created_at         DateTime      @default(now())
+  updated_at         DateTime      @updatedAt
+  damageAssessment   DamageAssessment?
+  rentalRequest      RentalRequest @relation(fields: [rental_request_id], references: [id], onDelete: Cascade)
+}
+
+model DamageAssessment {
+  id                String        @id @default(cuid())
+  product_return_id String        @unique
+  damage_type       String
+  severity          DamageSeverity
+  description       String
+  estimated_cost    Float
+  approved          Boolean       @default(false)
+  assessed_by       String
+  assessment_date   DateTime      @default(now())
+  productReturn     ProductReturn @relation(fields: [product_return_id], references: [id], onDelete: Cascade)
+  damagePhotos      DamagePhoto[]
+}
+
+model DamagePhoto {
+  id                   String           @id @default(cuid())
+  damage_assessment_id String
+  photo_url            String
+  description          String?
+  uploaded_at          DateTime         @default(now())
+  damageAssessment     DamageAssessment @relation(fields: [damage_assessment_id], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id              String         @id @default(cuid())
+  userId          String
+  rentalRequestId String?
+  type            String
+  title           String
+  message         String
+  data            String?
+  isRead          Boolean        @default(false)
+  readAt          DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  rentalRequest   RentalRequest? @relation(fields: [rentalRequestId], references: [id])
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model InvoiceDownload {
+  id         String   @id @default(cuid())
+  invoice_id String
+  user_id    String
+  format     String
+  file_size  Float?
+  success    Boolean  @default(true)
+  created_at DateTime @default(now())
+  invoice    Invoice  @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("invoice_downloads")
+}
+
+model Wishlist {
+  id         String   @id @default(cuid())
+  user_id    String
+  product_id String
+  created_at DateTime @default(now())
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, product_id])
+}

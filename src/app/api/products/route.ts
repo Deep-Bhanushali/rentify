@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit') as string) : undefined;
     const owner = searchParams.get('owner') === 'true';
 
-    const whereClause: any = {};
+    const whereClause: Record<string, unknown> = {};
 
     // If owner parameter is true, we need to authenticate the user
     let currentUserId = null;
@@ -45,8 +45,7 @@ export async function GET(request: NextRequest) {
       // Check if user is authenticated
       const decoded = getCurrentUser(request);
       if (decoded) {
-        // For authenticated users, exclude their own products and only show available products
-        whereClause.status = 'available';
+        whereClause.status = { in: ['available', 'rented'] };
         whereClause.user_id = {
           not: decoded.userId
         };
@@ -86,6 +85,20 @@ export async function GET(request: NextRequest) {
             name: true,
             email: true
           }
+        },
+        rentalRequests: {
+          where: {
+            status: { in: ['accepted', 'active', 'paid'] }
+          },
+          select: {
+            start_date: true,
+            end_date: true,
+            status: true
+          },
+          orderBy: {
+            created_at: 'desc'
+          },
+          take: 1 // Get the most recent active rental
         }
       },
       orderBy: {
@@ -93,6 +106,17 @@ export async function GET(request: NextRequest) {
       },
       take: limit
     });
+
+    // Add current rental information to products
+    products = products.map(product => ({
+      ...product,
+      currentRental: product.rentalRequests.length > 0 ? {
+        start_date: product.rentalRequests[0].start_date,
+        end_date: product.rentalRequests[0].end_date,
+        status: product.rentalRequests[0].status
+      } : null,
+      rentalRequests: undefined // Remove the raw rentalRequests from output
+    })) as any;
 
     // Add wishlist info to products if user is authenticated (for public listings)
     const decoded = getCurrentUser(request);

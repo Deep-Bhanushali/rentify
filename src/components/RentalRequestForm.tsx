@@ -27,7 +27,7 @@ export default function RentalRequestForm({ product, onSuccess }: RentalRequestF
   const [formData, setFormData] = useState<RentalRequestFormData>({
     product_id: product.id,
     start_date: new Date(),
-    end_date: new Date().setDate(new Date().getDate() + 1),
+    end_date: new Date(new Date().setDate(new Date().getDate() + 1)),
     pickup_location: product.location,
     return_location: product.location,
     rental_period: 'daily',
@@ -200,7 +200,7 @@ export default function RentalRequestForm({ product, onSuccess }: RentalRequestF
             onChange={handleInputChange}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
           >
-            <option value="daily">Daily</option>
+            <option value="daily">Day</option>
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>
             <option value="quarterly">Quarterly</option>

@@ -28,40 +28,55 @@ export async function GET(request: NextRequest) {
     }
 
     // Get current date
-    const currentDate = new Date();
+  const currentDate = new Date();
 
-    // Get active rentals for the user that can be returned
-    const activeRentals = await prisma.rentalRequest.findMany({
-      where: {
-        customer_id: decoded.userId,
-        status: {
-          in: ['accepted', 'paid'] // In the new flow, accepted rentals can be returned
+  // Get all rentals for the user that can be viewed or returned
+  const activeRentals = await prisma.rentalRequest.findMany({
+    where: {
+      customer_id: decoded.userId,
+      OR: [
+        // Rentals that have ended and been paid
+        {
+          status: 'paid',
+          end_date: {
+            lt: currentDate // Rental has ended
+          },
+          productReturn: null // No return initiated yet
         },
-        // Only include rentals that have started or are about to start
-        // start_date: {
-        //   lte: currentDate
-        // },
-        // Only include rentals that haven't been returned yet
-        productReturn: null
-      },
-      include: {
-        product: {
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            category: true,
-            rental_price: true,
-            location: true,
-            status: true,
-            image_url: true
+        // Rentals that are active (paid and within rental period)
+        {
+          status: 'paid',
+          end_date: {
+            gte: currentDate // Still within rental period
+          }
+        },
+        // Rentals with return records (for viewing status)
+        {
+          productReturn: {
+            isNot: null // Has return record
           }
         }
+      ]
+    },
+    include: {
+      product: {
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          category: true,
+          rental_price: true,
+          location: true,
+          status: true,
+          image_url: true
+        }
       },
-      orderBy: {
-        end_date: 'asc'
-      }
-    });
+      productReturn: true // Include return status
+    },
+    orderBy: {
+      end_date: 'asc'
+    }
+  });
 
     const response: ApiResponse = {
       success: true,

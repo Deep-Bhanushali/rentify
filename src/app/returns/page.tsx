@@ -42,40 +42,9 @@ export default function ReturnsPage() {
   };
 
   const initiateReturn = async (rentalId: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('Please log in to initiate return');
-      }
-
-      const response = await fetch('/api/returns', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          rental_request_id: rentalId,
-          return_date: new Date(),
-          return_location: 'Main Office', // This could be dynamic
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to initiate return');
-      }
-
-      const data = await response.json();
-      if (data.success && data.data) {
-        // Redirect to the return detail page using the rental request ID
-        // The return detail page expects the rental request ID, not the return ID
-        window.location.href = `/returns/${rentalId}`;
-      } else {
-        throw new Error('Failed to create return record');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    }
+    // Instead of creating return immediately, just redirect to return detail page
+    // The return detail page will handle creating the return record when user confirms
+    window.location.href = `/returns/${rentalId}`;
   };
 
   if (loading) {
@@ -190,12 +159,21 @@ export default function ReturnsPage() {
                             </div>
                           </div>
                           <div>
-                            <button
-                              onClick={() => initiateReturn(rental.id)}
-                              className="ml-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                            >
-                              Initiate Return
-                            </button>
+                              {rental.productReturn ? (
+                                <Link
+                                  href={`/returns/${rental.id}`}
+                                  className="ml-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                                >
+                                  View Return Status
+                                </Link>
+                              ) : (
+                                <Link
+                                  href={`/returns/${rental.id}`}
+                                  className="ml-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                >
+                                  Initiate Return
+                                </Link>
+                              )}
                           </div>
                         </div>
                       </div>

@@ -157,20 +157,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validatedData = createRentalRequestSchema.parse(body) as CreateRentalRequestRequest;
 
-    // Calculate rental period first to use in availability check
-    const requestStartDate = new Date(validatedData.start_date);
-    const requestEndDate = new Date(validatedData.end_date);
-
-    // Validate dates are logical
-    if (requestStartDate >= requestEndDate) {
-      const response: ApiResponse = {
-        success: false,
-        message: 'End date must be after start date'
-      };
-      return NextResponse.json(response, { status: 400 });
-    }
-
-    // Check if product exists and is available + no overlapping bookings
+    // Check if product exists and is available first
     const product = await prisma.product.findUnique({
       where: { id: validatedData.product_id }
     });
@@ -183,24 +170,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(response, { status: 404 });
     }
 
-    // Check for overlapping active/accepted rental requests
+    // Calculate rental period
+    const requestStartDate = new Date(validatedData.start_date);
+    const requestEndDate = new Date(validatedData.end_date);
+
+    // Validate dates are logical
+    if (requestStartDate >= requestEndDate) {
+      const response: ApiResponse = {
+        success: false,
+        message: 'End date must be after start date'
+      };
+      return NextResponse.json(response, { status: 400 });
+    }
+
+    // Check for overlapping active/accepted rental requests with 2-day buffer
     const overlappingRequests = await prisma.rentalRequest.findMany({
       where: {
         product_id: validatedData.product_id,
-        status: { in: ['accepted', 'active', 'paid'] },
+        status: 'paid',
         OR: [
+          // Direct overlap: new rental starts before existing rental ends
           {
             AND: [
               { start_date: { lte: requestStartDate } },
               { end_date: { gt: requestStartDate } }
             ]
           },
+          // New rental ends after existing rental starts
           {
             AND: [
               { start_date: { lt: requestEndDate } },
               { end_date: { gte: requestEndDate } }
             ]
           },
+          // Complete overlap: new rental completely covers existing rental
           {
             AND: [
               { start_date: { gte: requestStartDate } },
@@ -211,20 +214,38 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    if (overlappingRequests.length > 0) {
+    // PREVENT booking only if there's a PAID rental - allow competition until payment
+    const paidOverlappingRequests = overlappingRequests.filter(req => req.status === 'paid');
+
+    if (paidOverlappingRequests.length > 0) {
       const response: ApiResponse = {
         success: false,
-        message: 'This product is not available for the selected dates. Please choose different dates.'
+        message: 'This product is not available for the selected dates. It has already been rented by another customer.'
       };
       return NextResponse.json(response, { status: 409 });
     }
 
-    if (product.status !== 'available') {
+    // ALLOW overlapping with pending/accepted rentals - they compete during payment
+
+    // Additional check: enforce 2-day buffer only after PAID rentals (confirmed bookings)
+    const bufferCheckRequests = await prisma.rentalRequest.findMany({
+      where: {
+        product_id: validatedData.product_id,
+        status: 'paid', // Only confirmed paid rentals enforce buffer
+        // Check if new rental starts before 2 days after any paid rental ends
+        end_date: {
+          gte: requestStartDate, // Only consider rentals that end on or after the requested start date
+          lt: new Date(requestStartDate.getTime() + 2 * 24 * 60 * 60 * 1000) // Rentals ending within 2 days of requested start
+        }
+      }
+    });
+
+    if (bufferCheckRequests.length > 0) {
       const response: ApiResponse = {
         success: false,
-        message: 'Product is not available for rent'
+        message: 'This product requires a 2-day buffer period after existing rentals. Please select dates starting at least 2 days after the previous rental ends.'
       };
-      return NextResponse.json(response, { status: 400 });
+      return NextResponse.json(response, { status: 409 });
     }
 
     // Check if user is trying to rent their own product

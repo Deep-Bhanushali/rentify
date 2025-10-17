@@ -26,6 +26,20 @@ export async function GET(request: NextRequest, { params }: { params: Promise<Ro
             name: true,
             email: true
           }
+        },
+        rentalRequests: {
+          where: {
+            status: { in: ['accepted', 'active', 'paid'] }
+          },
+          select: {
+            start_date: true,
+            end_date: true,
+            status: true
+          },
+          orderBy: {
+            created_at: 'desc'
+          },
+          take: 1 
         }
       }
     });
@@ -38,10 +52,21 @@ export async function GET(request: NextRequest, { params }: { params: Promise<Ro
       return NextResponse.json(response, { status: 404 });
     }
 
+    // Add current rental information to product
+    const productWithRental = {
+      ...product,
+      currentRental: product.rentalRequests.length > 0 ? {
+        start_date: product.rentalRequests[0].start_date,
+        end_date: product.rentalRequests[0].end_date,
+        status: product.rentalRequests[0].status
+      } : null,
+      rentalRequests: undefined // Remove raw rentalRequests from output
+    };
+
     const response: ApiResponse<Product> = {
       success: true,
       message: 'Product retrieved successfully',
-      data: product
+      data: productWithRental as Product
     };
 
     return NextResponse.json(response, { status: 200 });

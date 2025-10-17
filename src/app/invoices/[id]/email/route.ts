@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import { verifyToken } from '@/lib/auth';
+import { NotificationService } from '@/lib/notifications';
 import { ApiResponse } from '@/types/models';
 
 const prisma = new PrismaClient();
@@ -9,7 +10,7 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-// POST /api/invoices/[id]/downloads - Record download action
+// POST /api/invoices/[id]/email - Send invoice via email
 export async function POST(request: NextRequest, props: RouteParams) {
   const params = await props.params;
   try {
@@ -32,7 +33,15 @@ export async function POST(request: NextRequest, props: RouteParams) {
       return NextResponse.json(response, { status: 401 });
     }
 
-    const { format, fileSize } = await request.json();
+    const { recipientEmail, subject, message } = await request.json();
+
+    if (!recipientEmail) {
+      const response: ApiResponse = {
+        success: false,
+        message: 'Recipient email is required'
+      };
+      return NextResponse.json(response, { status: 400 });
+    }
 
     // Check if invoice exists and user is authorized
     const invoice = await prisma.invoice.findUnique({
@@ -40,9 +49,11 @@ export async function POST(request: NextRequest, props: RouteParams) {
       include: {
         rentalRequest: {
           include: {
+            customer: true,
             product: true
           }
-        }
+        },
+        invoiceItems: true
       }
     });
 
@@ -54,42 +65,52 @@ export async function POST(request: NextRequest, props: RouteParams) {
       return NextResponse.json(response, { status: 404 });
     }
 
-    // Check if user is authorized to view this invoice
+    // Check if user is authorized to email this invoice
     if (invoice.rentalRequest.customer_id !== decoded.userId &&
         invoice.rentalRequest.product.user_id !== decoded.userId) {
       const response: ApiResponse = {
         success: false,
-        message: 'Unauthorized to record download for this invoice'
+        message: 'Unauthorized to email this invoice'
       };
       return NextResponse.json(response, { status: 403 });
     }
 
-    // Record the download
-    const download = await prisma.invoiceDownload.create({
-      data: {
-        invoice_id: invoice.id,
-        user_id: decoded.userId,
-        format: format || 'unknown',
-        file_size: fileSize || null,
-        success: true
-      }
-    });
+    // Send the invoice email and create notification
+    try {
+      await NotificationService.notifyInvoiceEmailed(invoice, recipientEmail);
+      console.log(`✅ Invoice ${invoice.invoice_number} emailed to: ${recipientEmail}`);
+    } catch (emailError: any) {
+      console.error(`❌ Failed to email invoice ${invoice.invoice_number} to ${recipientEmail}:`, emailError.message);
+      throw new Error(`Failed to send invoice email: ${emailError.message}`);
+    }
 
-    console.log(`Download recorded: Invoice ${invoice.invoice_number}, Format: ${format}, User: ${decoded.userId}`);
+    // Record the download/email action
+    try {
+      await prisma.invoiceDownload.create({
+        data: {
+          invoice_id: invoice.id,
+          user_id: decoded.userId,
+          format: 'email',
+          success: true
+        }
+      });
+    } catch (recordError) {
+      console.error('Failed to record email action:', recordError);
+      // Don't throw here as the email was successfully sent
+    }
 
     const response: ApiResponse = {
       success: true,
-      message: 'Download recorded successfully',
-      data: download
+      message: 'Invoice sent successfully via email'
     };
 
-    return NextResponse.json(response, { status: 201 });
-  } catch (error: unknown) {
-    console.error('Record download error:', error);
+    return NextResponse.json(response, { status: 200 });
+  } catch (error: any) {
+    console.error('Send invoice email error:', error);
 
     const response: ApiResponse = {
       success: false,
-      message: 'Failed to record download'
+      message: error.message || 'Failed to send invoice email'
     };
 
     return NextResponse.json(response, { status: 500 });

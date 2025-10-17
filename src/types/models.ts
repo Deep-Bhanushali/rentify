@@ -18,6 +18,11 @@ export interface Product {
   created_at: Date;
   image_url: string[];
   user?: User;
+  currentRental?: {
+    start_date: Date;
+    end_date: Date;
+    status: string;
+  } | null;
 }
 
 export interface CreateProductRequest {
@@ -54,6 +59,7 @@ export interface RentalRequest {
   created_at: Date;
   product?: Product;
   customer?: User;
+  productReturn?: ProductReturn;
 }
 
 export interface CreateRentalRequestRequest {

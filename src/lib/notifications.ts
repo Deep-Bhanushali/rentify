@@ -385,6 +385,320 @@ export class NotificationService {
     }
   }
 
+  // Create notification for rental request status updates (accepted, rejected, cancelled)
+  static async notifyRentalRequestStatusUpdate(rentalRequest: any, oldStatus: string, newStatus: string) {
+    try {
+      const { customer, product } = rentalRequest;
+
+      // Determine notification type and message based on new status
+      let notificationType: string;
+      let title: string;
+      let message: string;
+      let userId: string;
+      let shouldEmail = false;
+
+      if (newStatus === 'accepted') {
+        notificationType = 'approved';
+        title = 'Rental Request Approved';
+        message = `Your rental request for ${product.title} has been approved by the owner`;
+        userId = customer.id;
+        shouldEmail = true;
+      } else if (newStatus === 'rejected') {
+        notificationType = 'rejected';
+        title = 'Rental Request Rejected';
+        message = `Your rental request for ${product.title} has been rejected by the owner`;
+        userId = customer.id;
+        shouldEmail = true;
+      } else if (newStatus === 'cancelled') {
+        notificationType = 'cancelled';
+        title = 'Rental Request Cancelled';
+        message = `Your rental request for ${product.title} has been cancelled`;
+        userId = customer.id;
+        shouldEmail = true;
+      } else if (newStatus === 'returned') {
+        notificationType = 'returned';
+        title = 'Return Confirmed';
+        message = `Your return for ${product.title} has been confirmed. The product is now available for rent again.`;
+        userId = customer.id;
+        shouldEmail = true;
+      } else if (newStatus === 'completed') {
+        notificationType = 'completed';
+        title = 'Rental Completed';
+        message = `Your rental for ${product.title} has been marked as completed`;
+        userId = customer.id;
+        shouldEmail = true;
+      } else {
+        return; // Don't create notification for other status changes
+      }
+
+      // Create notification for customer
+      await this.createNotification({
+        userId,
+        type: notificationType,
+        title,
+        message,
+        rentalRequestId: rentalRequest.id,
+        data: {
+          productTitle: product.title,
+          productId: product.id,
+          oldStatus,
+          newStatus,
+          startDate: rentalRequest.start_date,
+          endDate: rentalRequest.end_date,
+          updatedAt: new Date(),
+        },
+      });
+
+      // Also notify product owner about status changes
+      if (oldStatus !== newStatus) {
+        const ownerNotificationType = `customer_${newStatus}`;
+        let ownerTitle: string;
+        let ownerMessage: string;
+
+        if (newStatus === 'accepted') {
+          ownerTitle = 'Request Accepted by Customer';
+          ownerMessage = `${customer.name} has accepted your rental offer for ${product.title}`;
+        } else if (newStatus === 'rejected') {
+          ownerTitle = 'Request Rejected by Customer';
+          ownerMessage = `${customer.name} has rejected your rental offer for ${product.title}`;
+        } else if (newStatus === 'cancelled') {
+          ownerTitle = 'Request Cancelled by Customer';
+          ownerMessage = `${customer.name} has cancelled their rental request for ${product.title}`;
+        } else if (newStatus === 'returned') {
+          ownerTitle = 'Product Returned by Customer';
+          ownerMessage = `${customer.name} has returned your product ${product.title}`;
+        } else if (newStatus === 'completed') {
+          ownerTitle = 'Rental Completed by Customer';
+          ownerMessage = `${customer.name} has marked the rental for ${product.title} as completed`;
+        } else {
+          return;
+        }
+
+        await this.createNotification({
+          userId: product.user_id,
+          type: ownerNotificationType,
+          title: ownerTitle,
+          message: ownerMessage,
+          rentalRequestId: rentalRequest.id,
+          data: {
+            customerName: customer.name,
+            customerId: customer.id,
+            productTitle: product.title,
+            productId: product.id,
+            oldStatus,
+            newStatus,
+            startDate: rentalRequest.start_date,
+            endDate: rentalRequest.end_date,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      // Send email if required
+      if (shouldEmail) {
+        try {
+          let emailData;
+          if (newStatus === 'accepted') {
+            emailData = EmailService.generateRequestApprovedEmail({
+              recipientName: customer.name,
+              productTitle: product.title,
+              startDate: new Date(rentalRequest.start_date).toLocaleDateString(),
+              endDate: new Date(rentalRequest.end_date).toLocaleDateString(),
+              rentalRequestId: rentalRequest.id,
+            });
+          } else if (newStatus === 'rejected') {
+            emailData = EmailService.generateRequestRejectedEmail({
+              recipientName: customer.name,
+              productTitle: product.title,
+              rentalRequestId: rentalRequest.id,
+            });
+          }
+          // Add more email cases as needed
+
+          if (emailData) {
+            await emailService.sendEmail({
+              to: customer.email,
+              subject: emailData.subject,
+              html: emailData.html,
+              text: emailData.text,
+            });
+          }
+        } catch (emailError) {
+          console.error('Error sending status update email:', emailError);
+        }
+      }
+    } catch (error) {
+      console.error('Error creating rental request status update notification:', error);
+    }
+  }
+
+  // Create notification for payment status updates
+  static async notifyPaymentStatusUpdate(payment: any, oldStatus: string, newStatus: string) {
+    try {
+      const { rentalRequest } = payment;
+      const { customer, product } = rentalRequest;
+
+      // Determine notification details based on new status
+      let notificationType: string;
+      let title: string;
+      let message: string;
+      let userId: string;
+
+      if (newStatus === 'completed') {
+        // Notify product owner
+        notificationType = 'payment_received';
+        title = 'Payment Received';
+        message = `Payment of $${payment.amount} received for ${product.title} rental`;
+        userId = product.user_id;
+      } else if (newStatus === 'failed') {
+        // Notify customer
+        notificationType = 'payment_failed';
+        title = 'Payment Failed';
+        message = `Your payment for ${product.title} rental has failed. Please try again.`;
+        userId = customer.id;
+      } else if (newStatus === 'pending') {
+        // Notify customer
+        notificationType = 'payment_pending';
+        title = 'Payment Processing';
+        message = `Your payment for ${product.title} rental is being processed`;
+        userId = customer.id;
+      } else if (newStatus === 'refunded') {
+        // Notify customer
+        notificationType = 'payment_refunded';
+        title = 'Payment Refunded';
+        message = `Your payment of $${payment.amount} for ${product.title} rental has been refunded`;
+        userId = customer.id;
+      } else {
+        return; // Don't notify for other statuses
+      }
+
+      await this.createNotification({
+        userId,
+        type: notificationType,
+        title,
+        message,
+        rentalRequestId: payment.rental_request_id,
+        data: {
+          productTitle: product.title,
+          amount: payment.amount,
+          paymentId: payment.id,
+          transactionId: payment.transaction_id,
+          oldStatus,
+          newStatus,
+          updatedAt: new Date(),
+        },
+      });
+
+    } catch (error) {
+      console.error('Error creating payment status update notification:', error);
+    }
+  }
+
+  // Create notification for invoice status updates
+  static async notifyInvoiceStatusUpdate(invoice: any, oldStatus: string, newStatus: string) {
+    try {
+      const { rentalRequest } = invoice;
+      const { customer, product } = rentalRequest;
+
+      // Determine notification details
+      let notificationType: string;
+      let title: string;
+      let message: string;
+      let userId: string;
+
+      if (newStatus === 'paid') {
+        // Notify both customer and owner
+        notificationType = 'invoice_paid';
+        title = 'Invoice Paid';
+        message = `Invoice ${invoice.invoice_number} for ${product.title} has been paid`;
+        userId = product.user_id; // Notify owner
+
+        // Also notify customer
+        await this.createNotification({
+          userId: customer.id,
+          type: 'invoice_paid_customer',
+          title: 'Payment Confirmed',
+          message: `Your payment for ${product.title} has been confirmed`,
+          rentalRequestId: invoice.rental_request_id,
+          data: {
+            invoiceNumber: invoice.invoice_number,
+            amount: invoice.amount,
+            productTitle: product.title,
+          },
+        });
+      } else if (newStatus === 'overdue') {
+        // Notify customer
+        notificationType = 'invoice_overdue';
+        title = 'Invoice Overdue';
+        message = `Invoice ${invoice.invoice_number} for ${product.title} is now overdue`;
+        userId = customer.id;
+      } else {
+        return; // Don't notify for other statuses
+      }
+
+      await this.createNotification({
+        userId,
+        type: notificationType,
+        title,
+        message,
+        rentalRequestId: invoice.rental_request_id,
+        data: {
+          invoiceNumber: invoice.invoice_number,
+          amount: invoice.amount,
+          productTitle: product.title,
+          oldStatus,
+          newStatus,
+          dueDate: invoice.due_date,
+          updatedAt: new Date(),
+        },
+      });
+
+    } catch (error) {
+      console.error('Error creating invoice status update notification:', error);
+    }
+  }
+
+  // Generic notification for any update that should notify both parties
+  static async notifyGeneralUpdate(rentalRequest: any, updateType: string, title: string, message: string, additionalData: any = {}) {
+    try {
+      const { customer, product } = rentalRequest;
+
+      const baseData = {
+        updateType,
+        productTitle: product.title,
+        productId: product.id,
+        customerId: customer.id,
+        customerName: customer.name,
+        rentalRequestId: rentalRequest.id,
+        updatedAt: new Date(),
+        ...additionalData,
+      };
+
+      // Notify customer
+      await this.createNotification({
+        userId: customer.id,
+        type: `customer_${updateType}`,
+        title: `Customer: ${title}`,
+        message,
+        rentalRequestId: rentalRequest.id,
+        data: baseData,
+      });
+
+      // Notify owner
+      await this.createNotification({
+        userId: product.user_id,
+        type: `owner_${updateType}`,
+        title: `Owner: ${title}`,
+        message,
+        rentalRequestId: rentalRequest.id,
+        data: baseData,
+      });
+
+    } catch (error) {
+      console.error(`Error creating ${updateType} notification:`, error);
+    }
+  }
+
   // Get notification count for user
   static async getNotificationCount(userId: string): Promise<number> {
     try {

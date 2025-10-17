@@ -28,6 +28,14 @@ class EmailService {
       if (!this.transporter) {
         throw new Error('Transporter not initialized');
       }
+
+      // Add better error logging
+      console.log('Attempting to send email:', {
+        to: options.to,
+        subject: options.subject,
+        from: process.env.EMAIL_USER
+      });
+
       const mailOptions = {
         from: `"Rentify" <${process.env.EMAIL_USER}>`,
         to: options.to,
@@ -37,12 +45,33 @@ class EmailService {
       };
 
       const info = await this.transporter.sendMail(mailOptions);
-      console.log('Email sent successfully:', info.messageId);
-    } catch (error) {
-      console.error('Error sending email:', error);
-      throw error;
-    }
+      console.log('✅ Email sent successfully:', {
+        messageId: info.messageId,
+        to: options.to,
+        subject: options.subject
+      });
+      return info;
+    } catch (error: any) {
+      console.error('❌ Error sending email:', {
+        error: error.message,
+        code: error.code,
+        response: error.response,
+        to: options.to,
+        subject: options.subject
+      });
 
+      // Add specific error information
+      if (error.code === 'EAUTH') {
+        console.error('❌ Email authentication failed - check EMAIL_PASSWORD');
+      } else if (error.code === 'ENOTFOUND') {
+        console.error('❌ Email server connection failed');
+      } else if (error.response) {
+        console.error('❌ Email server response:', error.response);
+      }
+
+      // Still throw error for proper handling
+      throw new Error(`Email sending failed: ${error.message}`);
+    }
   }
 
   // Email templates

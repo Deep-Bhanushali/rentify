@@ -13,6 +13,7 @@ enum RentalRequestStatus {
   paid
   active
   returned
+  waiting
 }
 
 enum PaymentStatus {
@@ -73,26 +74,28 @@ model User {
   invoiceDownloads InvoiceDownload[]
   notifications    Notification[]
   wishlists        Wishlist[]
+  PaymentAttempt   PaymentAttempt[]
 }
 
 model Product {
-  id             String          @id @default(cuid())
+  id             String           @id @default(cuid())
   user_id        String
   title          String
   description    String?
   category       String
   rental_price   Float
   location       String
-  status         ProductStatus   @default(available)
+  status         ProductStatus    @default(available)
   image_url      String[]
-  created_at     DateTime        @default(now())
-  user           User            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  created_at     DateTime         @default(now())
+  user           User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
   rentalRequests RentalRequest[]
   wishlists      Wishlist[]
+  PaymentAttempt PaymentAttempt[]
 }
 
 model RentalRequest {
-  id              String             @id @default(cuid())
+  id              String              @id @default(cuid())
   product_id      String
   customer_id     String
   start_date      DateTime
@@ -102,13 +105,15 @@ model RentalRequest {
   rental_period   Int
   pickup_location String
   return_location String
-  created_at      DateTime           @default(now())
+  created_at      DateTime            @default(now())
   invoice         Invoice?
   payment         Payment?
   productReturn   ProductReturn?
-  customer        User               @relation(fields: [customer_id], references: [id], onDelete: Cascade)
-  product         Product            @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  feedback        Feedback?
+  customer        User                @relation(fields: [customer_id], references: [id], onDelete: Cascade)
+  product         Product             @relation(fields: [product_id], references: [id], onDelete: Cascade)
   notifications   Notification[]
+  PaymentAttempt  PaymentAttempt?
 }
 
 model Payment {
@@ -160,31 +165,31 @@ model InvoiceItem {
 }
 
 model ProductReturn {
-  id                 String        @id @default(cuid())
-  rental_request_id  String        @unique
+  id                 String            @id @default(cuid())
+  rental_request_id  String            @unique
   return_date        DateTime
   return_location    String
-  return_status      ReturnStatus  @default(initiated)
+  return_status      ReturnStatus      @default(initiated)
   condition_notes    String?
   customer_signature String?
-  owner_confirmation Boolean       @default(false)
-  created_at         DateTime      @default(now())
-  updated_at         DateTime      @updatedAt
+  owner_confirmation Boolean           @default(false)
+  created_at         DateTime          @default(now())
+  updated_at         DateTime          @updatedAt
   damageAssessment   DamageAssessment?
-  rentalRequest      RentalRequest @relation(fields: [rental_request_id], references: [id], onDelete: Cascade)
+  rentalRequest      RentalRequest     @relation(fields: [rental_request_id], references: [id], onDelete: Cascade)
 }
 
 model DamageAssessment {
-  id                String        @id @default(cuid())
-  product_return_id String        @unique
+  id                String         @id @default(cuid())
+  product_return_id String         @unique
   damage_type       String
   severity          DamageSeverity
   description       String
   estimated_cost    Float
-  approved          Boolean       @default(false)
+  approved          Boolean        @default(false)
   assessed_by       String
-  assessment_date   DateTime      @default(now())
-  productReturn     ProductReturn @relation(fields: [product_return_id], references: [id], onDelete: Cascade)
+  assessment_date   DateTime       @default(now())
+  productReturn     ProductReturn  @relation(fields: [product_return_id], references: [id], onDelete: Cascade)
   damagePhotos      DamagePhoto[]
 }
 
@@ -238,4 +243,32 @@ model Wishlist {
   product    Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@unique([user_id, product_id])
+}
+
+model PaymentAttempt {
+  id                String        @id @default(cuid())
+  user_id           String
+  product_id        String
+  rental_request_id String
+  start_date        DateTime
+  end_date          DateTime
+  created_at        DateTime      @default(now())
+  expires_at        DateTime
+  is_active         Boolean       @default(true)
+  user              User          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product           Product       @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  rentalRequest     RentalRequest @relation(fields: [rental_request_id], references: [id], onDelete: Cascade)
+
+  @@unique([rental_request_id])
+}
+
+model Feedback {
+  id                String        @id @default(cuid())
+  rental_request_id String        @unique
+  rating            Int
+  feedback          String
+  submitted_at      DateTime      @default(now())
+  rentalRequest     RentalRequest @relation(fields: [rental_request_id], references: [id], onDelete: Cascade)
+
+  @@map("feedbacks")
 }

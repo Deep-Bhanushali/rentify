@@ -36,15 +36,17 @@ export default function ReturnConfirmation({
       
       // Submit feedback if provided
       if (feedback.trim()) {
+        const token = localStorage.getItem('token');
         await fetch('/api/feedback', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({
             rental_request_id: rental.id,
             rating,
-            feedback,
+            feedback: feedback.trim(),
           }),
         });
       }

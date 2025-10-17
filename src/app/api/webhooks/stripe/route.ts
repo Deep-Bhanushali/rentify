@@ -106,6 +106,16 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
       data: { status: 'rented' }
     });
 
+    // Remove payment attempt record after successful payment
+    try {
+      await prisma.paymentAttempt.deleteMany({
+        where: { rental_request_id: payment.rental_request_id }
+      });
+      console.log(`Payment attempt record removed for rental ${payment.rental_request_id}`);
+    } catch (attemptError) {
+      console.error('Failed to remove payment attempt:', attemptError);
+    }
+
     // Find existing invoice or mark as paid if it exists
     try {
       const existingInvoice = await prisma.invoice.findFirst({

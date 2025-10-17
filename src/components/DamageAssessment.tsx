@@ -53,28 +53,45 @@ export default function DamageAssessment({
   const [photoUrl, setPhotoUrl] = useState('');
   const [photoDescription, setPhotoDescription] = useState('');
   const [isCalculating, setIsCalculating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleSaveAssessment = () => {
+  const handleSaveAssessment = async () => {
     if (!damageType || !description) {
       alert('Please fill in all required fields');
       return;
     }
 
-    const assessmentData: CreateDamageAssessmentRequest | UpdateDamageAssessmentRequest = {
-      damage_type: damageType,
-      severity,
-      description,
-      estimated_cost: estimatedCost,
-    };
+    setIsSaving(true);
 
+    let assessmentData: CreateDamageAssessmentRequest | UpdateDamageAssessmentRequest;
+
+    // Always auto-approve assessments now
     if (damageAssessment) {
-      (assessmentData as UpdateDamageAssessmentRequest).approved = damageAssessment.approved;
+      assessmentData = {
+        damage_type: damageType,
+        severity,
+        description,
+        estimated_cost: estimatedCost,
+        approved: true // Auto-approve on save
+      };
     } else {
-      (assessmentData as CreateDamageAssessmentRequest).product_return_id = productReturnId;
-      (assessmentData as CreateDamageAssessmentRequest).assessed_by = 'current_user'; // This should be dynamic
+      assessmentData = {
+        damage_type: damageType,
+        severity,
+        description,
+        estimated_cost: estimatedCost,
+        // Note: product_return_id and assessed_by will be set in the API
+      };
     }
 
-    onSave(assessmentData);
+    try {
+      await onSave(assessmentData);
+    } catch (error) {
+      console.error('Error saving assessment:', error);
+      alert('Failed to save assessment. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleAddPhoto = () => {
@@ -208,9 +225,10 @@ export default function DamageAssessment({
                 <button
                   type="button"
                   onClick={handleSaveAssessment}
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                  disabled={isSaving}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
                 >
-                  {damageAssessment ? 'Update Assessment' : 'Save Assessment'}
+                  {isSaving ? 'Saving Assessment...' : (damageAssessment ? 'Update Assessment' : 'Save Assessment & Send Invoice')}
                 </button>
               </div>
             )}
@@ -309,7 +327,7 @@ export default function DamageAssessment({
               <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                 damageAssessment.approved ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
               }`}>
-                {damageAssessment.approved ? 'Approved' : 'Pending Approval'}
+                {damageAssessment.approved ? 'Approved' : 'Auto-Approved'}
               </span>
             </div>
           </div>

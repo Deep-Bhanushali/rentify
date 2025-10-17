@@ -89,7 +89,7 @@ export const createDamageAssessmentSchema = z.object({
   severity: z.enum(['minor', 'moderate', 'major']),
   description: z.string().min(1, 'Description is required'),
   estimated_cost: z.number().min(0, 'Estimated cost must be non-negative'),
-  assessed_by: z.string().min(1, 'Assessor ID is required'),
+  assessed_by: z.string().optional(), // Optional since we'll set it dynamically
 });
 
 export const updateDamageAssessmentSchema = z.object({

@@ -286,7 +286,29 @@ export default function ProductDetailPage() {
             {/* Main Product Card */}
             <div className="bg-white rounded-lg shadow p-6">
               <div className="flex justify-between items-start">
-                <h1 className="text-3xl font-bold text-gray-900">{product.title}</h1>
+                <div>
+                  <h1 className="text-3xl font-bold text-gray-900">{product.title}</h1>
+                  {product.status === 'rented' && product.currentRental && (
+                    <div className="mt-2 text-sm text-gray-600">
+                      <span className="font-medium">Rental period ends: </span>
+                      <span className="text-gray-800">
+                        {new Date(product.currentRental.end_date).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric'
+                        })}
+                      </span>
+                      <span className="ml-2 font-medium">• Available from: </span>
+                      <span className="text-gray-800">
+                        {new Date(new Date(product.currentRental.end_date).getTime() + (2 * 24 * 60 * 60 * 1000)).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric'
+                        })}
+                      </span>
+                    </div>
+                  )}
+                </div>
                 <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
                   product.status === 'available'
                     ? 'bg-green-100 text-green-800'

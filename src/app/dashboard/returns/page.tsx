@@ -69,33 +69,47 @@ export default function DashboardReturnsPage() {
       }
 
       let response;
-      if ('product_return_id' in assessment) {
-        // Create new assessment
+      if ('product_return_id' in assessment && !selectedReturn?.damageAssessment) {
+        // Create new assessment - invoice will be created by the API endpoint
         response = await fetch(`/api/returns/${selectedReturn?.id}/damage-assessment`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify(assessment),
         });
       } else {
-        // Update existing assessment
+        // Update existing assessment - invoice will be handled by the API endpoint
         response = await fetch(`/api/damage-assessments/${selectedReturn?.damageAssessment?.id}`, {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
+            'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify(assessment),
         });
       }
 
       if (response.ok) {
+        // Get the assessment result
+        const result = await response.json();
+        console.log('Assessment saved:', result);
+
+        // The API endpoint now handles all invoice creation logic
+        // No need to create invoices here as it's done in the API
+
         await fetchReturns();
         setShowDamageAssessment(false);
         setSelectedReturn(null);
+
+        // Show success message
+        if (result.data?.estimated_cost > 0) {
+          console.log(`Invoice will be generated for $${result.data.estimated_cost}`);
+        }
       } else {
+        const errorText = await response.text();
+        console.error('Failed to save assessment:', errorText);
         setError('Failed to save damage assessment');
       }
     } catch (err) {
@@ -196,6 +210,7 @@ export default function DashboardReturnsPage() {
         if (rentalResponse.ok && returnItem.rentalRequest) {
           // Notify the customer that the return is confirmed
           await NotificationService.notifyReturnConfirmed(returnItem.rentalRequest);
+          console.log(`Return confirmation notification sent to customer: ${returnItem.rentalRequest.customer.email}`);
         }
       }
 
@@ -412,7 +427,7 @@ export default function DashboardReturnsPage() {
                                 </p>
                                 <p className="mt-1 flex items-center text-sm text-gray-500">
                                   <span className="truncate">
-                                    Customer: {returnItem.rentalRequest?.customer_id || 'Unknown'}
+                                    Customer: {returnItem.rentalRequest?.customer?.name || 'Unknown'}
                                   </span>
                                 </p>
                                 <p className="mt-1 flex items-center text-sm text-gray-500">
@@ -430,12 +445,87 @@ export default function DashboardReturnsPage() {
                             <div className="flex space-x-2">
                               {returnItem.return_status !== 'completed' && (
                                 <button
-                                  onClick={() => {
+                                  onClick={async () => {
+                                    if (!returnItem.damageAssessment) {
+                                      // Create damage assessment first
+                                      try {
+                                        const token = localStorage.getItem('token');
+                                        const createAssessmentResponse = await fetch(`/api/returns/${returnItem.id}/damage-assessment`, {
+                                          method: 'POST',
+                                          headers: {
+                                            'Content-Type': 'application/json',
+                                            'Authorization': `Bearer ${token}`
+                                          },
+                                          body: JSON.stringify({
+                                            damage_type: 'none',
+                                            severity: 'minor',
+                                            description: 'Initial damage assessment',
+                                            estimated_cost: 0,
+                                            approved: false
+                                          })
+                                        });
+
+                                        if (createAssessmentResponse.ok) {
+                                          const newAssessment = await createAssessmentResponse.json();
+                                          // Update the return item locally with the new assessment
+                                          setSelectedReturn({
+                                            ...returnItem,
+                                            damageAssessment: newAssessment.data
+                                          });
+
+                                          // If damage assessment has estimated cost, create invoice
+                                          if (newAssessment.data.estimated_cost > 0) {
+                                            try {
+                                              const token = localStorage.getItem('token');
+                                              const invoiceResponse = await fetch('/api/invoices', {
+                                                method: 'POST',
+                                                headers: {
+                                                  'Content-Type': 'application/json',
+                                                  'Authorization': `Bearer ${token}`
+                                                },
+                                                body: JSON.stringify({
+                                                  rental_request_id: returnItem.rental_request_id,
+                                                  due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 7 days from now
+                                                  notes: `Damage assessment fee: ${newAssessment.data.description}`
+                                                })
+                                              });
+
+                                              if (invoiceResponse.ok) {
+                                                // Add invoice items for damage fee
+                                                const invoiceResult = await invoiceResponse.json();
+                                                await fetch('/api/invoices/items', {
+                                                  method: 'POST',
+                                                  headers: {
+                                                    'Content-Type': 'application/json',
+                                                    'Authorization': `Bearer ${token}`
+                                                  },
+                                                  body: JSON.stringify({
+                                                    invoice_id: invoiceResult.data.id,
+                                                    description: newAssessment.data.description || 'Damage assessment fee',
+                                                    quantity: 1,
+                                                    unit_price: newAssessment.data.estimated_cost,
+                                                    item_type: 'damage_fee'
+                                                  })
+                                                });
+                                              }
+                                            } catch (invoiceError) {
+                                              console.error('Failed to create damage invoice:', invoiceError);
+                                            }
+                                          }
+                                        }
+                                      } catch (error) {
+                                        console.error('Failed to create damage assessment:', error);
+                                        setError('Failed to create damage assessment');
+                                        return;
+                                      }
+                                    }
+
                                     setSelectedReturn(returnItem);
                                     setShowDamageAssessment(true);
                                   }}
                                   className="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                                 >
+                                  <Camera className="h-3 w-3 mr-1" />
                                   {returnItem.damageAssessment ? 'Edit Assessment' : 'Assess Damage'}
                                 </button>
                               )}

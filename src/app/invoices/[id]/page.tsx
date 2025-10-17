@@ -28,7 +28,10 @@ export default function InvoiceDetailPage() {
   const [emailSubject, setEmailSubject] = useState('');
   const [emailBody, setEmailBody] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
-  
+  const [paying, setPaying] = useState(false);
+  const [paymentTimer, setPaymentTimer] = useState<number>(0);
+  const [paymentExpiresAt, setPaymentExpiresAt] = useState<Date | null>(null);
+
   const params = useParams();
   const router = useRouter();
   const invoiceId = params.id as string;
@@ -181,11 +184,129 @@ export default function InvoiceDetailPage() {
   };
 
 
-  const handlePayInvoice = () => {
+  const handlePayInvoice = async () => {
     if (!invoice) return;
 
-    // Navigate to payment page with invoice ID only
-    router.push(`/payment?invoiceId=${invoice.id}`);
+    setPaying(true);
+
+    try {
+      // Check if product is available - if not available, redirect with error
+      const rentalRequest = invoice.rentalRequest;
+      if (!rentalRequest) {
+        router.push('/products/[id]');
+        return;
+      }
+
+      // Check product status and show appropriate toast notifications
+      const productCheck = await fetch(`/api/products/${rentalRequest.product_id}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      const productData = await productCheck.json();
+
+      if (productData.success && productData.data.status === 'rented') {
+        toast.info('📅 Checking rental availability...', {
+          position: "top-center",
+          autoClose: 2000,
+        });
+
+        // Check for date conflicts with existing paid rentals
+        const availabilityCheck = await fetch('/api/rental-requests/availability', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            product_id: rentalRequest.product_id,
+            start_date: rentalRequest.start_date,
+            end_date: rentalRequest.end_date
+          })
+        });
+
+        const availabilityData = await availabilityCheck.json();
+
+        if (!availabilityData.success) {
+          toast.error('❌ This product is currently rented for your selected dates.', {
+            position: "top-center",
+            autoClose: 4000,
+          });
+
+          // Delete the rental request and invoice, then redirect
+          setTimeout(async () => {
+            try {
+              await Promise.all([
+                fetch(`/api/rental-requests/${rentalRequest.id}`, {
+                  method: 'DELETE',
+                  headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                  }
+                }),
+                fetch(`/api/invoices/${invoice.id}`, {
+                  method: 'DELETE',
+                  headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                  }
+                })
+              ]);
+
+              toast.info('🧹 Cleaning up rental request...', {
+                position: "top-center",
+                autoClose: 2000,
+              });
+
+              setTimeout(() => {
+                router.push(`/products/${rentalRequest.product_id}`);
+              }, 2000);
+            } catch (cleanupError) {
+              console.error('Failed to cleanup:', cleanupError);
+              router.push(`/products/${rentalRequest.product_id}`);
+            }
+          }, 1000);
+
+          setPaying(false);
+          return;
+        }
+
+        toast.success('✅ Product available for your dates!', {
+          position: "top-center",
+          autoClose: 2000,
+        });
+      }
+
+      // If product available, create payment attempt
+      const paymentResponse = await fetch('/api/payments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          rental_request_id: rentalRequest.id,
+          payment_method: 'card'
+        })
+      });
+
+      const paymentData = await paymentResponse.json();
+
+      if (paymentData.success) {
+        // Set payment timer and redirect to payment page
+        setPaymentExpiresAt(new Date(paymentData.data.expires_at));
+        setPaymentTimer(10 * 60); // 10 minutes
+
+        // Navigate to payment page with payment details
+        router.push(`/payment?invoiceId=${invoice.id}&client_secret=${paymentData.data.client_secret}&expires_at=${paymentData.data.expires_at}`);
+      } else {
+        setError(paymentData.message);
+      }
+    } catch (error) {
+      console.error('Payment initiation error:', error);
+      setError('Failed to initiate payment process');
+    } finally {
+      setPaying(false);
+    }
   };
 
   const handlePrint = () => {
@@ -229,11 +350,12 @@ export default function InvoiceDetailPage() {
       }
 
       const result = await response.json();
+      console.log('✅ Email sent successfully to:', emailAddress);
       toast.success('Invoice sent successfully!');
       setShowEmailModal(false);
       setEmailAddress('');
     } catch (err) {
-      console.error('Error sending email:', err);
+      console.error('❌ Error sending email:', err);
       toast.error('Failed to send invoice. Please try again.');
     } finally {
       setSendingEmail(false);
@@ -267,7 +389,7 @@ export default function InvoiceDetailPage() {
 
   if (error) {
     return (
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-8 bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-50">
         <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6">
           <div className="flex">
             <div className="ml-3">

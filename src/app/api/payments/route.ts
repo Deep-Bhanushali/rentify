@@ -59,14 +59,300 @@ export async function POST(request: NextRequest) {
       throw new AppError('Unauthorized to make payment for this rental request', 403);
     }
 
+    // Step 1: Check if product is available for the requested dates
+    // Check product status and existing paid rentals
+    const productCheck = await prisma.product.findUnique({
+      where: { id: rentalRequest.product_id }
+    });
+
+    if (!productCheck) {
+      throw new AppError('Product not found', 404);
+    }
+
+    // If product is rented, check for conflicts and buffer
+    if (productCheck.status === 'rented') {
+      const overlappingPaidRentals = await prisma.rentalRequest.findMany({
+        where: {
+          product_id: rentalRequest.product_id,
+          status: 'paid',
+          OR: [
+            // Direct overlap
+            {
+              AND: [
+                { start_date: { lte: rentalRequest.start_date } },
+                { end_date: { gt: rentalRequest.start_date } }
+              ]
+            },
+            // New rental ends after paid rental starts
+            {
+              AND: [
+                { start_date: { lt: rentalRequest.end_date } },
+                { end_date: { gte: rentalRequest.end_date } }
+              ]
+            },
+            // Complete overlap
+            {
+              AND: [
+                { start_date: { gte: rentalRequest.start_date } },
+                { end_date: { lte: rentalRequest.end_date } }
+              ]
+            }
+          ]
+        }
+      });
+
+      if (overlappingPaidRentals.length > 0) {
+        throw new AppError('This product is not available for the selected dates. It has already been rented by another customer.', 409);
+      }
+
+      // Check buffer period for existing paid rentals
+      const bufferConflicts = await prisma.rentalRequest.findMany({
+        where: {
+          product_id: rentalRequest.product_id,
+          status: 'paid',
+          end_date: {
+            gte: rentalRequest.start_date,
+            lt: new Date(rentalRequest.start_date.getTime() + 2 * 24 * 60 * 60 * 1000)
+          }
+        }
+      });
+
+      if (bufferConflicts.length > 0) {
+        throw new AppError('This product requires a 2-day buffer period after existing rentals. The selected dates conflict with the required buffer period.', 409);
+      }
+    }
+
+    const existingOwnAttempts = await prisma.paymentAttempt.findMany({
+      where: {
+        rental_request_id: rental_request_id, // Same rental request
+        is_active: true
+      }
+    });
+
+    const conflictingAttempts = await prisma.paymentAttempt.findMany({
+      where: {
+        product_id: rentalRequest.product_id,
+        is_active: true, // Only consider active payment attempts
+        rental_request_id: { not: rental_request_id }, // Exclude current user's attempts
+        OR: [
+          // Direct overlap with existing attempts
+          {
+            AND: [
+              { start_date: { lte: rentalRequest.start_date } },
+              { end_date: { gt: rentalRequest.start_date } }
+            ]
+          },
+          // New attempt ends after existing attempt starts
+          {
+            AND: [
+              { start_date: { lt: rentalRequest.end_date } },
+              { end_date: { gte: rentalRequest.end_date } }
+            ]
+          },
+          // Complete overlap with existing attempts
+          {
+            AND: [
+              { start_date: { gte: rentalRequest.start_date } },
+              { end_date: { lte: rentalRequest.end_date } }
+            ]
+          }
+        ]
+      }
+    });
+
+    if (conflictingAttempts.length > 0) {
+      throw new AppError('This product is currently being booked by another customer. Please try different dates or check back in a few minutes.', 409);
+    }
+
+    // Handle existing PaymentAttempt for this rental request
+    let paymentAttempt;
+    if (existingOwnAttempts.length > 0) {
+      // Update existing attempt - extend expiry and reactivate
+      paymentAttempt = await prisma.paymentAttempt.update({
+        where: { rental_request_id: rental_request_id },
+        data: {
+          expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now
+          is_active: true
+        }
+      });
+    } else {
+      // Create new payment attempt entry - now it's guaranteed no conflicts
+      paymentAttempt = await prisma.paymentAttempt.create({
+        data: {
+          user_id: decoded.userId,
+          product_id: rentalRequest.product_id,
+          rental_request_id: rental_request_id,
+          start_date: rentalRequest.start_date,
+          end_date: rentalRequest.end_date,
+          expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now
+          is_active: true
+        }
+      });
+    }
+
+    // Schedule cleanup of expired PaymentAttempts in background
+    setTimeout(async () => {
+      try {
+        const now = new Date();
+
+        // Find expired active PaymentAttempts
+        const expiredAttempts = await prisma.paymentAttempt.findMany({
+          where: {
+            is_active: true,
+            expires_at: { lt: now }
+          },
+          include: {
+            rentalRequest: true
+          }
+        });
+
+        for (const attempt of expiredAttempts) {
+          // Mark attempt as inactive
+          await prisma.paymentAttempt.update({
+            where: { id: attempt.id },
+            data: { is_active: false }
+          });
+
+          // Check if there's an associated pending payment that should be failed
+          const pendingPayment = await prisma.payment.findFirst({
+            where: {
+              rental_request_id: attempt.rental_request_id,
+              payment_status: 'pending'
+            }
+          });
+
+          if (pendingPayment) {
+            await prisma.payment.update({
+              where: { id: pendingPayment.id },
+              data: {
+                payment_status: 'failed',
+                notes: `Payment expired after 10 minutes. Expires at: ${attempt.expires_at.toISOString()}`
+              }
+            });
+
+            // Update rental request status back to accepted if it was still pending
+            const rentalRequest = attempt.rentalRequest;
+            if (rentalRequest.status === 'pending') {
+              await prisma.rentalRequest.update({
+                where: { id: attempt.rental_request_id },
+                data: { status: 'accepted' } // Reset to accepted to allow another payment attempt
+              });
+            }
+
+            // Send notification to customer about payment expiry
+            try {
+              await NotificationService.notifyRentalRequestStatusUpdate(
+                { ...rentalRequest, customer: { id: attempt.user_id, name: 'Customer', email: '' } },
+                'pending',
+                'accepted' // Will trigger appropriate expiry notification
+              );
+            } catch (notificationError) {
+              console.error('Failed to send expiry notification:', notificationError);
+            }
+          }
+        }
+
+        console.log(`Cleaned up ${expiredAttempts.length} expired payment attempts`);
+      } catch (cleanupError) {
+        console.error('Error cleaning up expired payment attempts:', cleanupError);
+      }
+    }, 1000); // Small delay to ensure current request completes first
+
     // Check if payment already exists for this rental request - atomically handle race condition
     const result = await prisma.$transaction(async (tx) => {
       const existingPayment = await tx.payment.findUnique({
         where: { rental_request_id: rental_request_id }
       });
 
-      if (existingPayment) {
+      if (existingPayment && existingPayment.payment_status === 'completed') {
         throw new AppError('Payment already exists for this rental request', 400);
+      }
+
+      // If payment exists but failed, delete it and allow retry
+      if (existingPayment && existingPayment.payment_status === 'failed') {
+        await tx.payment.delete({
+          where: { rental_request_id: rental_request_id }
+        });
+      }
+
+      // If payment exists and is pending, update it with new Stripe intent
+      if (existingPayment && existingPayment.payment_status === 'pending') {
+        // Return existing pending payment details without creating a new one
+        const existingPaymentWithDetails = await tx.payment.findUnique({
+          where: { rental_request_id: rental_request_id },
+          include: {
+            rentalRequest: {
+              include: {
+                product: {
+                  include: {
+                    user: {
+                      select: {
+                        id: true,
+                        name: true,
+                        email: true
+                      }
+                    }
+                  }
+                },
+                customer: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true
+                  }
+                }
+              }
+            }
+          }
+        });
+
+        if (!existingPaymentWithDetails) {
+          throw new AppError('Failed to retrieve existing payment details', 500);
+        }
+
+        if (payment_method === 'offline') {
+          // For offline payments, update transaction details if needed
+          return { type: 'offline', payment: existingPaymentWithDetails };
+        } else if (existingPaymentWithDetails.transaction_id) {
+          // For online payments with existing transaction, retrieve the client_secret from Stripe
+          try {
+            const paymentIntent = await stripe.paymentIntents.retrieve(existingPaymentWithDetails.transaction_id);
+            return { type: 'online', payment: existingPaymentWithDetails, client_secret: paymentIntent.client_secret };
+          } catch (stripeError) {
+            console.error('Failed to retrieve payment intent from Stripe:', stripeError);
+            throw new AppError('Failed to retrieve payment details. Please try again.', 500);
+          }
+        } else {
+          // For online payments without transaction, create new Stripe intent and update
+          const paymentIntent = await stripe.paymentIntents.create({
+            amount: Math.round(existingPayment.amount * 100), // Use existing amount
+            currency: 'usd',
+            metadata: {
+              rental_request_id: rental_request_id,
+              customer_id: decoded.userId,
+              product_id: rentalRequest.product_id,
+            },
+          });
+
+          // Update payment with new transaction ID
+          await tx.payment.update({
+            where: { rental_request_id: rental_request_id },
+            data: {
+              transaction_id: paymentIntent.id
+            }
+          });
+
+          return {
+            type: 'online',
+            payment: { ...existingPaymentWithDetails, transaction_id: paymentIntent.id },
+            client_secret: paymentIntent.client_secret
+          };
+        }
+      }
+
+      // Double-check: No completed payment should reach this point after all previous checks
+      if (existingPayment && existingPayment.payment_status === 'completed') {
+        throw new AppError('Payment has already been completed for this rental request', 400);
       }
 
       // Calculate payment amount SERVER-SIDE ONLY - no client input accepted
@@ -173,7 +459,8 @@ export async function POST(request: NextRequest) {
         message: 'Offline payment initiated successfully',
         data: {
           payment_id: result.payment.id,
-          is_offline: true
+          is_offline: true,
+          expires_at: paymentAttempt.expires_at
         }
       };
 
@@ -185,7 +472,8 @@ export async function POST(request: NextRequest) {
         data: {
           client_secret: result.client_secret,
           payment_id: result.payment.id,
-          is_offline: false
+          is_offline: false,
+          expires_at: paymentAttempt.expires_at
         }
       };
 
@@ -287,50 +575,64 @@ export async function PUT(request: NextRequest) {
       }
     });
 
-    // If offline payment is completed, update rental request and product
-    if (payment_status === 'completed' && payment.payment_method === 'offline') {
-      // Update rental request status to active
-      await prisma.rentalRequest.update({
-        where: { id: payment.rental_request_id },
-        data: { status: 'active' }
-      });
-
-      // Update product status to rented
-      await prisma.product.update({
-        where: { id: payment.rentalRequest.product_id },
-        data: { status: 'rented' }
-      });
-
-      // Mark invoice as paid if it exists
-      const invoice = await prisma.invoice.findFirst({
-        where: { rental_request_id: payment.rental_request_id }
-      });
-
-      if (invoice) {
-        await prisma.invoice.update({
-          where: { id: invoice.id },
-          data: {
-            invoice_status: 'paid',
-            paid_date: new Date()
-          }
+    // Handle payment completion and cleanup
+    if (payment_status === 'completed') {
+      await prisma.$transaction(async (tx) => {
+        // Update rental request status
+        await tx.rentalRequest.update({
+          where: { id: payment.rental_request_id },
+          data: { status: 'paid' }
         });
-      }
 
-      // Send notification to product owner that offline payment was approved
-      try {
-        await NotificationService.notifyPaymentCompleted(updatedPayment);
-        console.log(`Offline payment approval notification sent to owner: ${payment.rentalRequest.product.user_id}`);
-      } catch (notificationError) {
-        console.error('Failed to send offline payment notification to owner:', notificationError);
-      }
+        // Update product status to rented
+        await tx.product.update({
+          where: { id: payment.rentalRequest.product_id },
+          data: { status: 'rented' }
+        });
 
-      // Send confirmation notification to customer
-      try {
-        await NotificationService.notifyCustomerPaymentConfirmed(updatedPayment);
-        console.log(`Offline payment confirmation sent to customer: ${payment.rentalRequest.customer.email}`);
-      } catch (notificationError) {
-        console.error('Failed to send offline payment confirmation to customer:', notificationError);
-      }
+        // Mark invoice as paid if it exists
+        const invoice = await tx.invoice.findFirst({
+          where: { rental_request_id: payment.rental_request_id }
+        });
+
+        if (invoice) {
+          await tx.invoice.update({
+            where: { id: invoice.id },
+            data: {
+              invoice_status: 'paid',
+              paid_date: new Date()
+            }
+          });
+        }
+
+        // Mark payment attempt as inactive
+        await tx.paymentAttempt.updateMany({
+          where: { rental_request_id: payment.rental_request_id },
+          data: { is_active: false }
+        });
+
+        // Send payment completion notifications
+        try {
+          await NotificationService.notifyPaymentCompleted(updatedPayment);
+          console.log(`Payment completion notification sent to owner: ${payment.rentalRequest.product.user_id}`);
+        } catch (notificationError) {
+          console.error('Failed to send payment completion notification to owner:', notificationError);
+        }
+
+        // Send confirmation notification to customer
+        try {
+          await NotificationService.notifyCustomerPaymentConfirmed(updatedPayment);
+          console.log(`Payment confirmation sent to customer: ${payment.rentalRequest.customer.email}`);
+        } catch (notificationError) {
+          console.error('Failed to send payment confirmation to customer:', notificationError);
+        }
+      });
+    } else if (payment_status === 'failed') {
+      // Mark payment attempt as inactive on failure
+      await prisma.paymentAttempt.updateMany({
+        where: { rental_request_id: payment.rental_request_id },
+        data: { is_active: false }
+      });
     }
 
     const response: ApiResponse = {

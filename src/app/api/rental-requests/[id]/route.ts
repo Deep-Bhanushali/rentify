@@ -17,7 +17,7 @@ export async function GET(request: NextRequest, props: RouteParams) {
   const params = await props.params;
   try {
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
-    
+
     if (!token) {
       const response: ApiResponse = {
         success: false,
@@ -57,16 +57,7 @@ export async function GET(request: NextRequest, props: RouteParams) {
           }
         },
         payment: true,
-        invoice: true,
-        productReturn: {
-          include: {
-            damageAssessment: {
-              include: {
-                damagePhotos: true
-              }
-            }
-          }
-        }
+        invoice: true
       }
     });
 
@@ -111,7 +102,7 @@ export async function PUT(request: NextRequest, props: RouteParams) {
   const params = await props.params;
   try {
     const token = request.headers.get('authorization')?.replace('Bearer ', '');
-    
+
     if (!token) {
       const response: ApiResponse = {
         success: false,
@@ -145,9 +136,6 @@ export async function PUT(request: NextRequest, props: RouteParams) {
       return NextResponse.json(response, { status: 404 });
     }
 
-    // Check if user is authorized to update this rental request
-    // Product owner can update status for approval/rejection
-    // Customer can update status for completion (when returning product)
     const isOwner = existingRentalRequest.product.user_id === decoded.userId;
     const isCustomer = existingRentalRequest.customer_id === decoded.userId;
 
@@ -161,6 +149,9 @@ export async function PUT(request: NextRequest, props: RouteParams) {
 
     const body = await request.json();
     const validatedData = updateRentalRequestSchema.parse(body) as UpdateRentalRequestRequest;
+
+    // Get the old status for notification tracking
+    const oldStatus = existingRentalRequest.status;
 
     // Update rental request
     const updatedRentalRequest = await prisma.rentalRequest.update({
@@ -186,20 +177,9 @@ export async function PUT(request: NextRequest, props: RouteParams) {
           }
         },
         payment: true,
-        invoice: true,
-        productReturn: {
-          include: {
-            damageAssessment: {
-              include: {
-                damagePhotos: true
-              }
-            }
-          }
-        }
+        invoice: true
       }
     });
-
-
 
     // If rental request is rejected or cancelled, update product status back to available
     if (validatedData.status === 'rejected' || validatedData.status === 'cancelled') {
@@ -217,13 +197,9 @@ export async function PUT(request: NextRequest, props: RouteParams) {
       });
     }
 
-    // Send notifications based on status change
+    // Send comprehensive notifications for all status changes
     try {
-      if (validatedData.status === 'accepted') {
-        await NotificationService.notifyRequestApproved(updatedRentalRequest);
-      } else if (validatedData.status === 'rejected') {
-        await NotificationService.notifyRequestRejected(updatedRentalRequest);
-      }
+      await NotificationService.notifyRentalRequestStatusUpdate(updatedRentalRequest, oldStatus, validatedData.status);
     } catch (notificationError) {
       console.error('Failed to create notification for status change:', notificationError);
       // Don't fail the rental request update if notification fails
@@ -255,6 +231,98 @@ export async function PUT(request: NextRequest, props: RouteParams) {
     const response: ApiResponse = {
       success: false,
       message: 'Failed to update rental request'
+    };
+
+    return NextResponse.json(response, { status: 500 });
+  }
+}
+
+// DELETE /api/rental-requests/[id] - Delete rental request (for cleanup when product unavailable)
+export async function DELETE(request: NextRequest, props: RouteParams) {
+  const params = await props.params;
+  try {
+    const token = request.headers.get('authorization')?.replace('Bearer ', '');
+
+    if (!token) {
+      const response: ApiResponse = {
+        success: false,
+        message: 'Authentication required'
+      };
+      return NextResponse.json(response, { status: 401 });
+    }
+
+    const decoded = verifyToken(token);
+    if (!decoded) {
+      const response: ApiResponse = {
+        success: false,
+        message: 'Invalid token'
+      };
+      return NextResponse.json(response, { status: 401 });
+    }
+
+    // Find rental request
+    const rentalRequest = await prisma.rentalRequest.findUnique({
+      where: { id: params.id },
+      include: { invoice: true }
+    });
+
+    if (!rentalRequest) {
+      const response: ApiResponse = {
+        success: false,
+        message: 'Rental request not found'
+      };
+      return NextResponse.json(response, { status: 404 });
+    }
+
+    // Check if user is authorized (must own the rental request or be admin)
+    if (rentalRequest.customer_id !== decoded.userId) {
+      const response: ApiResponse = {
+        success: false,
+        message: 'Unauthorized to delete this rental request'
+      };
+      return NextResponse.json(response, { status: 403 });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Delete payment attempt first if exists
+      await tx.paymentAttempt.deleteMany({
+        where: { rental_request_id: params.id }
+      });
+
+      // Delete payment if exists
+      await tx.payment.deleteMany({
+        where: { rental_request_id: params.id }
+      });
+
+      // Delete invoice if exists
+      if (rentalRequest.invoice) {
+        await tx.invoice.delete({
+          where: { id: rentalRequest.invoice.id }
+        });
+      }
+
+      // Delete the rental request
+      await tx.rentalRequest.delete({
+        where: { id: params.id }
+      });
+    });
+
+    // Revalidate caches
+    revalidateTag('rental-requests');
+    revalidateTag('notifications');
+
+    const response: ApiResponse = {
+      success: true,
+      message: 'Rental request and associated data deleted successfully'
+    };
+
+    return NextResponse.json(response, { status: 200 });
+  } catch (error: unknown) {
+    console.error('Delete rental request error:', error);
+
+    const response: ApiResponse = {
+      success: false,
+      message: 'Failed to delete rental request'
     };
 
     return NextResponse.json(response, { status: 500 });

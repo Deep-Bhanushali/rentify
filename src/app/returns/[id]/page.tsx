@@ -12,6 +12,8 @@ export default function ReturnDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [rating, setRating] = useState(5);
   
   const params = useParams();
   const router = useRouter();
@@ -43,15 +45,23 @@ export default function ReturnDetailPage() {
       const rentalData = await rentalResponse.json();
       setRental(rentalData.data);
 
-      // Fetch return details if exists
-      const returnResponse = await fetch(`/api/returns/${rentalId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      if (returnResponse.ok) {
-        const returnData = await returnResponse.json();
-        setProductReturn(returnData.data);
+      // Find the product return for this rental - filter by rental_request_id
+      try {
+        const returnsResponse = await fetch(`/api/returns?rental_request_id=${rentalId}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        if (returnsResponse.ok) {
+          const returnsData = await returnsResponse.json();
+          // Take the first (and should be only) return for this rental
+          if (returnsData.data && returnsData.data.length > 0) {
+            setProductReturn(returnsData.data[0]);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not find product return for this rental:', err);
+        // This is okay - some rentals might not have returns initiated yet
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -67,39 +77,65 @@ export default function ReturnDetailPage() {
         throw new Error('Please log in to confirm return');
       }
 
-      const response = await fetch(`/api/returns/${rentalId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          return_status: 'completed',
-          customer_signature: signature,
-          condition_notes: conditionNotes,
-        }),
-      });
+      // Only allow creating new return if it doesn't exist
+      if (!productReturn) {
+        // Create a new return record with status 'initiated'
+        const response = await fetch('/api/returns', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            rental_request_id: rentalId,
+            return_date: new Date().toISOString().split('T')[0],
+            return_location: rental?.return_location || 'Default Location',
+            condition_notes: conditionNotes,
+            customer_signature: signature,
+          }),
+        });
 
-      if (!response.ok) {
-        throw new Error('Failed to confirm return');
+        if (!response.ok) {
+          throw new Error('Failed to initiate return');
+        }
+
+        // Submit feedback if provided
+        if (feedback.trim()) {
+          await fetch('/api/feedback', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              rental_request_id: rentalId,
+              rating: rating,
+              feedback: feedback.trim(),
+            }),
+          });
+        }
+
+        // Refresh data
+        await fetchReturnDetails();
+        setShowConfirmation(false);
+      } else {
+        // Return already exists, just submit feedback if provided
+        if (feedback.trim()) {
+          await fetch('/api/feedback', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              rental_request_id: rentalId,
+              rating: rating,
+              feedback: feedback.trim(),
+            }),
+          });
+        }
+        setShowConfirmation(false);
       }
-
-      // Update rental status to completed and product back to available
-      await fetch(`/api/rental-requests/${rentalId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          status: 'completed',
-          product_status: 'available', // Make product available again
-        }),
-      });
-
-      // Refresh data
-      await fetchReturnDetails();
-      setShowConfirmation(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     }
@@ -172,7 +208,6 @@ export default function ReturnDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Navigation />
       <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
           <div className="flex justify-between items-center mb-6">
@@ -294,18 +329,18 @@ export default function ReturnDetailPage() {
             </div>
           </div>
 
-          {returnStatus !== 'completed' && (
+          {returnStatus !== 'completed' && !productReturn && (
             <div className="bg-white shadow overflow-hidden sm:rounded-lg">
               <div className="px-4 py-5 sm:px-6">
-                <h3 className="text-lg leading-6 font-medium text-gray-900">Complete Return</h3>
-                <p className="mt-1 max-w-2xl text-sm text-gray-500">Confirm the return of your product</p>
+                <h3 className="text-lg leading-6 font-medium text-gray-900">Initiate Return</h3>
+                <p className="mt-1 max-w-2xl text-sm text-gray-500">Start the return process for this rental</p>
               </div>
               <div className="border-t border-gray-200 px-4 py-5 sm:p-6">
                 <button
                   onClick={() => setShowConfirmation(true)}
                   className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
-                  Confirm Return
+                  Initiate Return
                 </button>
               </div>
             </div>

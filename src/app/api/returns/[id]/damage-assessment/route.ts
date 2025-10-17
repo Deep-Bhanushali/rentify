@@ -65,6 +65,10 @@ export async function POST(request: NextRequest, props: RouteParams) {
     const body = await request.json();
     const validatedData = createDamageAssessmentSchema.parse(body) as CreateDamageAssessmentRequest;
 
+    // Set default values for missing fields
+    validatedData.product_return_id = params.id;
+    validatedData.assessed_by = decoded.userId;
+
     // Check if damage assessment already exists
     const existingAssessment = await prisma.damageAssessment.findUnique({
       where: { product_return_id: params.id }
@@ -78,7 +82,7 @@ export async function POST(request: NextRequest, props: RouteParams) {
       return NextResponse.json(response, { status: 400 });
     }
 
-    // Create damage assessment
+      // Create damage assessment
     const damageAssessment = await prisma.damageAssessment.create({
       data: {
         ...validatedData,
@@ -98,6 +102,87 @@ export async function POST(request: NextRequest, props: RouteParams) {
         damagePhotos: true
       }
     });
+
+    // If damage assessment has estimated cost, create invoice
+    if (damageAssessment.estimated_cost > 0) {
+      // Check if invoice exists for this rental
+      const existingInvoice = await prisma.invoice.findUnique({
+        where: { rental_request_id: existingReturn.rental_request_id }
+      });
+
+      if (existingInvoice) {
+        // Update existing invoice with damage fee
+        await prisma.invoice.update({
+          where: { id: existingInvoice.id },
+          data: {
+            damage_fee: damageAssessment.estimated_cost,
+            additional_charges: (existingInvoice.additional_charges || 0) + damageAssessment.estimated_cost,
+            updated_at: new Date()
+          }
+        });
+
+        // Check if damage fee item exists
+        const existingDamageItem = await prisma.invoiceItem.findUnique({
+          where: {
+            invoice_id_item_type: {
+              invoice_id: existingInvoice.id,
+              item_type: 'damage_fee'
+            }
+          }
+        });
+
+        if (existingDamageItem) {
+          // Update existing damage fee item
+          await prisma.invoiceItem.update({
+            where: { id: existingDamageItem.id },
+            data: {
+              description: damageAssessment.description || 'Damage assessment fee',
+              unit_price: damageAssessment.estimated_cost,
+              total_price: damageAssessment.estimated_cost
+            }
+          });
+        } else {
+          // Create damage fee item
+          await prisma.invoiceItem.create({
+            data: {
+              invoice_id: existingInvoice.id,
+              description: damageAssessment.description || 'Damage assessment fee',
+              quantity: 1,
+              unit_price: damageAssessment.estimated_cost,
+              total_price: damageAssessment.estimated_cost,
+              item_type: 'damage_fee'
+            }
+          });
+        }
+      } else {
+        // Create new invoice for damage fee
+        const newInvoice = await prisma.invoice.create({
+          data: {
+            rental_request_id: existingReturn.rental_request_id,
+            invoice_number: `INV-${Date.now()}`,
+            amount: damageAssessment.estimated_cost,
+            tax_rate: 0.1,
+            tax_amount: damageAssessment.estimated_cost * 0.1,
+            subtotal: damageAssessment.estimated_cost,
+            due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+            notes: `Damage assessment: ${damageAssessment.description}`,
+            invoice_status: 'pending'
+          }
+        });
+
+        // Create damage fee item
+        await prisma.invoiceItem.create({
+          data: {
+            invoice_id: newInvoice.id,
+            description: damageAssessment.description || 'Damage assessment fee',
+            quantity: 1,
+            unit_price: damageAssessment.estimated_cost,
+            total_price: damageAssessment.estimated_cost,
+            item_type: 'damage_fee'
+          }
+        });
+      }
+    }
 
     const response: ApiResponse = {
       success: true,

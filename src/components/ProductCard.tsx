@@ -17,7 +17,10 @@ export default function ProductCard({ product, isListView = false }: ProductCard
   const [isInWishlist, setIsInWishlist] = useState(!!product.isInWishlist);
   const router = useRouter();
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string, isBlocked?: boolean) => {
+    if (isBlocked) {
+      return 'bg-orange-100 text-orange-700';
+    }
     switch (status.toLowerCase()) {
       case 'available':
         return 'bg-green-100 text-green-700';
@@ -28,6 +31,30 @@ export default function ProductCard({ product, isListView = false }: ProductCard
       default:
         return 'bg-gray-100 text-gray-700';
     }
+  };
+
+  const getStatusText = (status: string, isBlocked?: boolean) => {
+    if (isBlocked) {
+      return 'In Payment Process';
+    }
+    switch (status.toLowerCase()) {
+      case 'available':
+        return 'Available';
+      case 'rented':
+        return 'Rented';
+      case 'pending':
+        return 'Pending';
+      default:
+        return status;
+    }
+  };
+
+  const formatDate = (date: Date) => {
+    return new Date(date).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
   };
 
   const getImageUrl = () => {
@@ -72,9 +99,23 @@ export default function ProductCard({ product, isListView = false }: ProductCard
         {/* Product Image */}
         <div className="w-full md:w-1/4 relative h-48 md:h-auto">
           {renderImageOrFallback()}
-          <div className={`absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
-            {product.status === 'available' ? 'Available' : product.status}
+        <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
+          <div className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
+            {getStatusText(product.status)}
           </div>
+          {product.status === 'rented' && product.currentRental && (
+            <div className="bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded-lg">
+              <div className="font-medium">Rented until:</div>
+              <div>{formatDate(new Date(new Date(product.currentRental.end_date).getTime() + (2 * 24 * 60 * 60 * 1000)))}</div>
+            </div>
+          )}
+          {false && ( // Disabled for now, will enable when backend supports payment blocking status
+            <div className="bg-orange-500 text-white text-xs px-2 py-1 rounded-lg">
+              <div className="font-medium">⏳ Payment in progress</div>
+              <div className="text-center">Someone is booking</div>
+            </div>
+          )}
+        </div>
         </div>
 
         {/* Product Details */}
@@ -122,8 +163,16 @@ export default function ProductCard({ product, isListView = false }: ProductCard
       {/* Product Image */}
       <div className="relative h-48">
         {renderImageOrFallback()}
-        <div className={`absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
-          {product.status === 'available' ? 'Available' : product.status}
+        <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
+          <div className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(product.status)}`}>
+            {product.status === 'available' ? 'Available' : product.status}
+          </div>
+          {product.status === 'rented' && product.currentRental && (
+            <div className="bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded-lg">
+              <div className="font-medium">Rented until:</div>
+              <div>{formatDate(new Date(new Date(product.currentRental.end_date).getTime() + (2 * 24 * 60 * 60 * 1000)))}</div>
+            </div>
+          )}
         </div>
       </div>
 

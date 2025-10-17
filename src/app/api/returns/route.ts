@@ -48,8 +48,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(response, { status: 404 });
     }
 
-    // Check if user is authorized to create a return (must be the customer)
-    if (rentalRequest.customer_id !== decoded.userId) {
+    // Check if user is authorized (either customer or owner)
+    const isCustomer = rentalRequest.customer_id === decoded.userId;
+    const isOwner = rentalRequest.product.user_id === decoded.userId;
+
+    if (!isCustomer && !isOwner) {
       const response: ApiResponse = {
         success: false,
         message: 'Unauthorized to create return for this rental'
@@ -147,10 +150,41 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const asOwner = searchParams.get('asOwner') === 'true';
+    const rentalRequestId = searchParams.get('rental_request_id');
 
     let returns;
 
-    if (asOwner) {
+    if (rentalRequestId) {
+      // Filter returns by rental request ID
+      returns = await prisma.productReturn.findMany({
+        where: {
+          rental_request_id: rentalRequestId,
+          // Add authorization check
+          rentalRequest: {
+            OR: [
+              { customer_id: decoded.userId }, // Customer can see their returns
+              { product: { user_id: decoded.userId } } // Product owner can see returns for their products
+            ]
+          }
+        },
+        include: {
+          rentalRequest: {
+            include: {
+              product: true,
+              customer: true
+            }
+          },
+          damageAssessment: {
+            include: {
+              damagePhotos: true
+            }
+          }
+        },
+        orderBy: {
+          created_at: 'desc'
+        }
+      });
+    } else if (asOwner) {
       // Get returns for products owned by the user
       returns = await prisma.productReturn.findMany({
         where: {
@@ -164,7 +198,13 @@ export async function GET(request: NextRequest) {
           rentalRequest: {
             include: {
               product: true,
-              customer: true
+              customer: {
+                select: {
+                  id: true,
+                  name: true, // Include customer name instead of just ID
+                  email: true
+                }
+              }
             }
           },
           damageAssessment: {
@@ -213,7 +253,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(response, { status: 200 });
   } catch (error: any) {
     console.error('Get returns error:', error);
-    
+
     const response: ApiResponse = {
       success: false,
       message: 'Failed to retrieve returns'

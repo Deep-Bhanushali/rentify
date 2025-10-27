@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
       },
       [`notifications-${decoded.userId}-${unreadOnly}-${limit}`],
       {
-        revalidate: 60,
+        revalidate: 10,
         tags: ['notifications']
       }
     );
@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
     response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
 
     return response;
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error fetching notifications:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
@@ -123,13 +123,39 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // Notification caches will be invalidated by client-side revalidation
+    // Invalidate caches
+    revalidateTag('notifications')
+
+    // Emit notification via socket
+    const socketServerUrl = process.env.SOCKET_SERVER_URL || 'http://localhost:3001';
+    try {
+      await fetch(`${socketServerUrl}/emit-notification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: notification.userId,
+          notification: {
+            id: notification.id,
+            type: notification.type,
+            title: notification.title,
+            message: notification.message,
+            data: notification.data,
+            createdAt: notification.createdAt
+          }
+        }),
+      });
+    } catch (emitError) {
+      console.warn('Failed to emit notification via socket:', emitError);
+      // Don't fail the whole request if emit fails
+    }
 
     return NextResponse.json({
       success: true,
       data: notification
     })
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error creating notification:', error)
     return NextResponse.json(
       { error: 'Internal server error' },

@@ -139,11 +139,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const handleNotification = (notification: Notification) => {
         console.log('📬 Received new notification:', notification.title);
-        setNotifications(prev => [notification, ...prev]);
+
+        // Add default properties if missing
+        const completeNotification: Notification = {
+          ...notification,
+          isRead: false,
+          createdAt: notification.createdAt || new Date().toISOString(),
+        };
+
+        setNotifications(prev => [completeNotification, ...prev]);
         setUnreadNotificationsCount(prev => prev + 1);
 
+        // Invalidate cache so next polling cycle gets fresh data
+        invalidateNotificationCache();
+
         // Call all registered callbacks
-        notificationCallbacks.current.forEach(callback => callback(notification));
+        notificationCallbacks.current.forEach(callback => callback(completeNotification));
       };
 
       const handleConnectError = (error: { message: string }) => {
@@ -153,7 +164,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       globalSocket.on('connect', handleConnect);
       globalSocket.on('disconnect', handleDisconnect);
-      globalSocket.on('new-notification', handleNotification);
+      globalSocket.on('notification', handleNotification);
       globalSocket.on('connect_error', handleConnectError);
 
       // Set initial connection state
@@ -163,11 +174,106 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return () => {
         globalSocket.off('connect', handleConnect);
         globalSocket.off('disconnect', handleDisconnect);
-        globalSocket.off('new-notification', handleNotification);
+        globalSocket.off('notification', handleNotification);
         globalSocket.off('connect_error', handleConnectError);
       };
     }
   }, []);
+
+  // Cache ref for invalidation when notifications are received via socket
+  const notificationCacheRef = useRef<{ data: Notification[], unreadCount: number, timestamp: number } | null>(null);
+
+  // Function to invalidate notification cache
+  const invalidateNotificationCache = () => {
+    notificationCacheRef.current = null;
+    console.log('🔄 Notification cache invalidated');
+  };
+
+  // Cached notification polling with 30-second revalidation
+  useEffect(() => {
+    if (!user) return;
+
+    const CACHE_DURATION = 30000; // 30 seconds
+
+    const fetchNotificationsWithCache = async (forceFetch = false, skipCache = false) => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const now = Date.now();
+
+        // Check if we have valid cache and not forcing fetch
+        if (!forceFetch && notificationCacheRef.current && (now - notificationCacheRef.current.timestamp) < CACHE_DURATION) {
+          // Use cached data
+          setNotifications(notificationCacheRef.current.data);
+          setUnreadNotificationsCount(notificationCacheRef.current.unreadCount);
+          return;
+        }
+
+        const response = await fetch('/api/notifications?limit=20', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.data) {
+            const newNotifications = data.data;
+            const newUnreadCount = data.unreadCount || 0;
+
+            // Only update if we have newer/different notifications or first load
+            setNotifications(currentNotifications => {
+              if (!currentNotifications.length) {
+                // First load
+                return newNotifications;
+              }
+
+              const currentIds = new Set(currentNotifications.map(n => n.id));
+              const newOnes = newNotifications.filter((n: Notification) => !currentIds.has(n.id));
+
+              if (newOnes.length > 0) {
+                console.log(`📬 Fetched ${newOnes.length} new notifications`);
+                // Trigger callbacks for new notifications from polling
+                newOnes.forEach((notification: Notification) => {
+                  notificationCallbacks.current.forEach(callback => callback(notification));
+                });
+                return [...newOnes, ...currentNotifications].slice(0, 20);
+              }
+              return currentNotifications;
+            });
+
+            setUnreadNotificationsCount(newUnreadCount);
+
+            // Update cache
+            notificationCacheRef.current = {
+              data: newNotifications,
+              unreadCount: newUnreadCount,
+              timestamp: now
+            };
+
+            console.log('💾 Notifications cached for 30 seconds');
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to fetch notifications:', error);
+        // If fetch fails, try to use stale cache if available
+        if (notificationCacheRef.current) {
+          console.log('📋 Using stale notification cache');
+          setNotifications(notificationCacheRef.current.data);
+          setUnreadNotificationsCount(notificationCacheRef.current.unreadCount);
+        }
+      }
+    };
+
+    // Initial fetch
+    fetchNotificationsWithCache(true);
+
+    // Set up periodic revalidation every 30 seconds
+    const interval = setInterval(() => fetchNotificationsWithCache(false), CACHE_DURATION);
+
+    return () => clearInterval(interval);
+  }, [user]);
 
   // Register notification callback
   const onNewNotification = (callback: (notification: Notification) => void) => {

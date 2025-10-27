@@ -354,27 +354,7 @@ export async function POST(request: NextRequest) {
 
     // Send notification to product owner about new rental request
     try {
-      // First create the database notification
-      await prisma.notification.create({
-        data: {
-          userId: newRentalRequest.product.user.id,
-          rentalRequestId: newRentalRequest.id,
-          type: 'rental_request',
-          title: 'New Rental Request',
-          message: `${newRentalRequest.customer.name} wants to rent your ${newRentalRequest.product.title}`,
-          data: JSON.stringify({
-            rentalRequest: {
-              id: newRentalRequest.id,
-              product: {
-                title: newRentalRequest.product.title
-              }
-            }
-          })
-        }
-      });
-
-      // Then send the real-time notification via Socket.IO
-      await NotificationService.notifyNewRentalRequest(token, newRentalRequest);
+      await NotificationService.notifyNewRentalRequest(newRentalRequest);
     } catch (notificationError) {
       console.error('Failed to create notification for new rental request:', notificationError);
       // Don't fail the rental request creation if notification fails
@@ -382,6 +362,7 @@ export async function POST(request: NextRequest) {
 
     // Revalidate caches when new rental request is created
     revalidateTag('rental-requests');
+    revalidateTag('notifications');
 
     const response: ApiResponse<RentalRequest> = {
       success: true,

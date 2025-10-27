@@ -11,7 +11,6 @@ export interface NotificationData {
   message: string;
   rentalRequestId?: string;
   data?: Record<string, any>;
-  authToken?: string;
 }
 
 export class NotificationService {
@@ -43,36 +42,32 @@ export class NotificationService {
         }
       });
 
-      // Emit real-time notification via Socket.IO server HTTP API
+      // Emit real-time notification via socket server HTTP endpoint
+      const socketServerUrl = process.env.SOCKET_SERVER_URL || 'http://localhost:3001';
       try {
-        const socketServerUrl = process.env.SOCKET_SERVER_URL || 'http://localhost:3001';
-
-        if (data.authToken) {
-          await fetch(`${socketServerUrl}/notify`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${data.authToken}`,
-            },
-            body: JSON.stringify({
-              userId: data.userId,
-              notification: {
-                id: notification.id,
-                type: notification.type,
-                title: notification.title,
-                message: notification.message,
-                isRead: false,
-                createdAt: notification.createdAt.toISOString(),
-                rentalRequest: notification.rentalRequest ? {
-                  id: notification.rentalRequest.id,
-                  product: {
-                    title: notification.rentalRequest.product.title
-                  }
-                } : undefined
-              }
-            }),
-          });
-        }
+        await fetch(`${socketServerUrl}/emit-notification`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            userId: data.userId,
+            notification: {
+              id: notification.id,
+              type: notification.type,
+              title: notification.title,
+              message: notification.message,
+              isRead: false,
+              createdAt: notification.createdAt.toISOString(),
+              rentalRequest: notification.rentalRequest ? {
+                id: notification.rentalRequest.id,
+                product: {
+                  title: notification.rentalRequest.product.title
+                }
+              } : undefined
+            }
+          }),
+        });
       } catch (socketError) {
         console.warn('Failed to emit socket notification:', socketError);
       }
@@ -85,7 +80,7 @@ export class NotificationService {
   }
 
   // Create notification for new rental request
-  static async notifyNewRentalRequest(authToken: string, rentalRequest: any) {
+  static async notifyNewRentalRequest(rentalRequest: any) {
     try {
       // Notify the product owner
       await this.createNotification({
@@ -94,7 +89,6 @@ export class NotificationService {
         title: 'New Rental Request',
         message: `${rentalRequest.customer.name} has requested to rent your ${rentalRequest.product.title}`,
         rentalRequestId: rentalRequest.id,
-        authToken,
         data: {
           customerName: rentalRequest.customer.name,
           productTitle: rentalRequest.product.title,

@@ -1,11 +1,14 @@
 'use client';
 
 import { AuthProvider } from '@/lib/AuthContext';
+import SocketManager from './SocketManager';
 
 export function AuthWrapper({ children }: { children: React.ReactNode }) {
   return (
     <AuthProvider>
-      {children}
+      <SocketManager>
+        {children}
+      </SocketManager>
     </AuthProvider>
   );
 }

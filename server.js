@@ -28,7 +28,7 @@ app.prepare().then(() => {
 
   const io = new Server(httpServer, {
     cors: {
-      origin: dev ? "http://localhost:3000" : false,
+      origin: dev ? "https://rentify-rulc.onrender.com" : false,
       methods: ["GET", "POST"]
     }
   });

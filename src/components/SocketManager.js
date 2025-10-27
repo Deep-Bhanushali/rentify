@@ -17,15 +17,22 @@ const SocketManager = ({ children }) => {
       });
 
       socketRef.current.on('connect', () => {
-        console.log('Connected to Socket.IO server');
+        console.log('✅ Connected to Socket.IO server');
+        console.log('User authenticated:', user.id);
+        console.log('Connection details:', socketRef.current.id);
       });
 
       socketRef.current.on('disconnect', () => {
-        console.log('Disconnected from Socket.IO server');
+        console.log('❌ Disconnected from Socket.IO server');
       });
 
       socketRef.current.on('connect_error', (error) => {
-        console.log('Socket connection error:', error.message);
+        console.log('❌ Socket connection error:', error.message);
+        console.log('Full error:', error);
+      });
+
+      socketRef.current.on('notification', (notification) => {
+        console.log('📬 Socket notification received:', notification);
       });
     }
 

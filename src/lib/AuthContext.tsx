@@ -55,9 +55,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const notificationCallbacks = useRef<((notification: Notification) => void)[]>([]);
 
-  const socketRef = useRef<Socket | null>(null);
-  const connectionAttempted = useRef(false);
-
   const isLoggedIn = !!user;
 
   // Initialize auth state from localStorage on mount
@@ -123,73 +120,54 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  // Socket connection management
-  const connectSocket = (authToken?: string) => {
-    if (socketRef.current?.connected || connectionAttempted.current) return;
+  // Socket connection management - use global socket from SocketManager
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (window as any).socket) {
+      const globalSocket = (window as any).socket as Socket;
 
-    connectionAttempted.current = true;
-    const token = authToken || localStorage.getItem('token');
+      setSocket(globalSocket);
 
-    if (!token) {
-      console.warn('No token available for socket connection');
-      return;
+      const handleConnect = () => {
+        console.log('✓ Socket connection established');
+        setIsSocketConnected(true);
+      };
+
+      const handleDisconnect = (reason: string) => {
+        console.log('Socket disconnected:', reason);
+        setIsSocketConnected(false);
+      };
+
+      const handleNotification = (notification: Notification) => {
+        console.log('📬 Received new notification:', notification.title);
+        setNotifications(prev => [notification, ...prev]);
+        setUnreadNotificationsCount(prev => prev + 1);
+
+        // Call all registered callbacks
+        notificationCallbacks.current.forEach(callback => callback(notification));
+      };
+
+      const handleConnectError = (error: { message: string }) => {
+        console.error('❌ Socket connection error:', error.message);
+        setIsSocketConnected(false);
+      };
+
+      globalSocket.on('connect', handleConnect);
+      globalSocket.on('disconnect', handleDisconnect);
+      globalSocket.on('new-notification', handleNotification);
+      globalSocket.on('connect_error', handleConnectError);
+
+      // Set initial connection state
+      setIsSocketConnected(globalSocket.connected);
+
+      // Cleanup function
+      return () => {
+        globalSocket.off('connect', handleConnect);
+        globalSocket.off('disconnect', handleDisconnect);
+        globalSocket.off('new-notification', handleNotification);
+        globalSocket.off('connect_error', handleConnectError);
+      };
     }
-
-    console.log('Attempting socket connection with token...', {
-      hasToken: !!token,
-      tokenPreview: token ? token.substring(0, 20) + '...' : 'no-token'
-    });
-
-    const newSocket = io(process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3000', {
-      auth: {
-        token: token
-      },
-      autoConnect: true,
-      timeout: 10000,
-    });
-
-    newSocket.on('connect', () => {
-      console.log('✓ Connected to socket server successfully');
-      setIsSocketConnected(true);
-    });
-
-    newSocket.on('disconnect', (reason) => {
-      console.log('Disconnected from socket server:', reason);
-      setIsSocketConnected(false);
-    });
-
-    newSocket.on('new-notification', (notification: Notification) => {
-      console.log('📬 Received new notification:', notification.title);
-      setNotifications(prev => [notification, ...prev]);
-      setUnreadNotificationsCount(prev => prev + 1);
-
-      // Call all registered callbacks
-      notificationCallbacks.current.forEach(callback => callback(notification));
-    });
-
-    newSocket.on('connect_error', (error) => {
-      console.error('❌ Socket connection error:', error.message);
-      connectionAttempted.current = false;
-      // Reset connection attempt after a delay
-      setTimeout(() => {
-        connectionAttempted.current = false;
-      }, 5000);
-    });
-
-    socketRef.current = newSocket;
-    setSocket(newSocket);
-  };
-
-  const disconnectSocket = () => {
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
-      connectionAttempted.current = false;
-    }
-    setSocket(null);
-    setIsSocketConnected(false);
-    setNotifications([]);
-  };
+  }, []);
 
   // Register notification callback
   const onNewNotification = (callback: (notification: Notification) => void) => {
@@ -200,9 +178,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const login = (token: string, userData?: User) => {
-    // Disconnect any existing socket first
-    disconnectSocket();
-
     localStorage.setItem('token', token);
 
     const user = userData || {
@@ -215,9 +190,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     localStorage.setItem('user', JSON.stringify(user));
     setUser(user);
 
-    // Connect socket immediately after login with fresh token
-    setTimeout(() => connectSocket(token), 100);
-
+    // Socket connection is handled by SocketManager automatically
     // Fetch counts after login
     fetchPendingRequestsCount(token);
     fetchUnreadNotificationsCount(token);
@@ -229,7 +202,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(null);
     setPendingRequestsCount(0);
     setUnreadNotificationsCount(0);
-    disconnectSocket();
     setNotifications([]);
   };
 
@@ -241,20 +213,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUnreadNotificationsCount(count);
   };
 
-  // Connect socket when user logs in (only for auto-login from localStorage)
-  useEffect(() => {
-    if (user && !socket) {
-      // Only connect if not already connecting (manual login handles connection)
-      connectSocket();
-    }
-  }, [user]);
 
-  // Disconnect socket when user logs out
-  useEffect(() => {
-    return () => {
-      disconnectSocket();
-    };
-  }, []);
 
   const value = {
     user,

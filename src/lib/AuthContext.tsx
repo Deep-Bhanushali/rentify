@@ -150,8 +150,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setNotifications(prev => [completeNotification, ...prev]);
         setUnreadNotificationsCount(prev => prev + 1);
 
-        // Invalidate cache so next polling cycle gets fresh data
-        invalidateNotificationCache();
+        // Call all registered callbacks
 
         // Call all registered callbacks
         notificationCallbacks.current.forEach(callback => callback(completeNotification));
@@ -180,35 +179,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
-  // Cache ref for invalidation when notifications are received via socket
-  const notificationCacheRef = useRef<{ data: Notification[], unreadCount: number, timestamp: number } | null>(null);
 
-  // Function to invalidate notification cache
-  const invalidateNotificationCache = () => {
-    notificationCacheRef.current = null;
-    console.log('🔄 Notification cache invalidated');
-  };
 
-  // Cached notification polling with 30-second revalidation
+  // Notification polling every 60 seconds (no caching)
   useEffect(() => {
     if (!user) return;
 
-    const CACHE_DURATION = 30000; // 30 seconds
-
-    const fetchNotificationsWithCache = async (forceFetch = false, skipCache = false) => {
+    const fetchNotifications = async () => {
       try {
         const token = localStorage.getItem('token');
         if (!token) return;
-
-        const now = Date.now();
-
-        // Check if we have valid cache and not forcing fetch
-        if (!forceFetch && notificationCacheRef.current && (now - notificationCacheRef.current.timestamp) < CACHE_DURATION) {
-          // Use cached data
-          setNotifications(notificationCacheRef.current.data);
-          setUnreadNotificationsCount(notificationCacheRef.current.unreadCount);
-          return;
-        }
 
         const response = await fetch('/api/notifications?limit=20', {
           headers: {
@@ -222,55 +202,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
             const newNotifications = data.data;
             const newUnreadCount = data.unreadCount || 0;
 
-            // Only update if we have newer/different notifications or first load
-            setNotifications(currentNotifications => {
-              if (!currentNotifications.length) {
-                // First load
-                return newNotifications;
-              }
-
-              const currentIds = new Set(currentNotifications.map(n => n.id));
-              const newOnes = newNotifications.filter((n: Notification) => !currentIds.has(n.id));
-
-              if (newOnes.length > 0) {
-                console.log(`📬 Fetched ${newOnes.length} new notifications`);
-                // Trigger callbacks for new notifications from polling
-                newOnes.forEach((notification: Notification) => {
-                  notificationCallbacks.current.forEach(callback => callback(notification));
-                });
-                return [...newOnes, ...currentNotifications].slice(0, 20);
-              }
-              return currentNotifications;
-            });
-
+            // Update notifications and count with fresh data
+            setNotifications(newNotifications);
             setUnreadNotificationsCount(newUnreadCount);
 
-            // Update cache
-            notificationCacheRef.current = {
-              data: newNotifications,
-              unreadCount: newUnreadCount,
-              timestamp: now
-            };
-
-            console.log('💾 Notifications cached for 30 seconds');
+            console.log('📬 Fetched notifications from API');
           }
         }
       } catch (error) {
         console.warn('Failed to fetch notifications:', error);
-        // If fetch fails, try to use stale cache if available
-        if (notificationCacheRef.current) {
-          console.log('📋 Using stale notification cache');
-          setNotifications(notificationCacheRef.current.data);
-          setUnreadNotificationsCount(notificationCacheRef.current.unreadCount);
-        }
       }
     };
 
     // Initial fetch
-    fetchNotificationsWithCache(true);
+    fetchNotifications();
 
-    // Set up periodic revalidation every 30 seconds
-    const interval = setInterval(() => fetchNotificationsWithCache(false), CACHE_DURATION);
+    // Set up periodic polling every 60 seconds
+    const interval = setInterval(fetchNotifications, 60000);
 
     return () => clearInterval(interval);
   }, [user]);

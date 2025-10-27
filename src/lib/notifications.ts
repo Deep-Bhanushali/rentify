@@ -45,7 +45,13 @@ export class NotificationService {
       // Emit real-time notification via socket server HTTP endpoint
       const socketServerUrl = process.env.SOCKET_SERVER_URL;
       try {
-        await fetch(`${socketServerUrl}/emit-notification`, {
+        if (!socketServerUrl) {
+          console.error('SOCKET_SERVER_URL environment variable is not set!');
+          return notification;
+        }
+
+        console.log(`Attempting to emit notification via socket to: ${socketServerUrl}/emit-notification`);
+        const response = await fetch(`${socketServerUrl}/emit-notification`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -68,8 +74,31 @@ export class NotificationService {
             }
           }),
         });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`Socket emission failed with status ${response.status}: ${errorText}`);
+          // In development, log that socket server may not be running
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn('⚠️  Socket server may not be running. To enable real-time notifications:');
+            console.warn('   1. Open a new terminal');
+            console.warn('   2. cd socket-backend');
+            console.warn('   3. npm start');
+          }
+        } else {
+          const responseText = await response.text();
+          console.log(`Socket emission successful: ${responseText}`);
+        }
       } catch (socketError) {
-        console.warn('Failed to emit socket notification:', socketError);
+        console.error('Failed to emit socket notification - network error:', socketError.message);
+        console.error('Full error details:', JSON.stringify(socketError, null, 2));
+        // In development, provide helpful guidance
+        if (process.env.NODE_ENV !== 'production' && socketError.code === 'ECONNREFUSED') {
+          console.warn('️⚠️  Socket server connection refused. To enable real-time notifications:');
+          console.warn('   1. Open a new terminal');
+          console.warn('   2. cd socket-backend');
+          console.warn('   3. npm start');
+        }
       }
 
       return notification;

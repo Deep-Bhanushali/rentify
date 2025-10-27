@@ -123,8 +123,7 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // Revalidate caches when notification is created
-    revalidateTag('notifications');
+    // Notification caches will be invalidated by client-side revalidation
 
     return NextResponse.json({
       success: true,

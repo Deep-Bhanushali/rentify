@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { emailService, EmailService } from './email';
+import { getUserRoom } from './config';
 
 const prisma = new PrismaClient();
 
@@ -26,7 +27,43 @@ export class NotificationService {
           message: data.message,
           data: data.data ? JSON.stringify(data.data) : null,
         },
+        include: {
+          rentalRequest: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  title: true,
+                  rental_price: true
+                }
+              }
+            }
+          }
+        }
       });
+
+      // Emit real-time notification via Socket.IO
+      try {
+        if (typeof global !== 'undefined' && global.io) {
+          global.io.to(getUserRoom(data.userId)).emit('new-notification', {
+            id: notification.id,
+            type: notification.type,
+            title: notification.title,
+            message: notification.message,
+            isRead: false,
+            createdAt: notification.createdAt.toISOString(),
+            rentalRequest: notification.rentalRequest ? {
+              id: notification.rentalRequest.id,
+              product: {
+                title: notification.rentalRequest.product.title
+              }
+            } : undefined
+          });
+        }
+      } catch (socketError) {
+        console.warn('Failed to emit socket notification:', socketError);
+      }
+
       return notification;
     } catch (error) {
       console.error('Error creating notification:', error);
@@ -237,6 +274,46 @@ export class NotificationService {
       }
     } catch (error) {
       console.error('Error creating payment confirmation notification:', error);
+    }
+  }
+
+  // Create notification for return initiation (to product owner)
+  static async notifyReturnInitiated(rentalRequest: any) {
+    try {
+      // Notify the product owner
+      await this.createNotification({
+        userId: rentalRequest.product.user_id,
+        type: 'return_initiated',
+        title: 'Return Initiated',
+        message: `${rentalRequest.customer.name} has initiated a return for ${rentalRequest.product.title}. Please review and confirm the return.`,
+        rentalRequestId: rentalRequest.id,
+        data: {
+          productTitle: rentalRequest.product.title,
+          customerName: rentalRequest.customer.name,
+          returnDate: new Date(),
+        },
+      });
+
+      // Send email to product owner
+      try {
+        const emailData = EmailService.generateReturnInitiatedEmail({
+          recipientName: rentalRequest.product.user.name,
+          customerName: rentalRequest.customer.name,
+          productTitle: rentalRequest.product.title,
+          rentalRequestId: rentalRequest.id,
+        });
+
+        await emailService.sendEmail({
+          to: rentalRequest.product.user.email,
+          subject: emailData.subject,
+          html: emailData.html,
+          text: emailData.text,
+        });
+      } catch (emailError) {
+        console.error('Error sending return initiated email:', emailError);
+      }
+    } catch (error) {
+      console.error('Error creating return initiated notification:', error);
     }
   }
 

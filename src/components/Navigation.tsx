@@ -52,7 +52,7 @@ export default function Navigation() {
   };
 
   return (
-    <nav className="bg-white shadow-lg border-b border-gray-100 sticky top-0 z-50">
+    <nav className="bg-white shadow-lg border-b border-gray-100 sticky top-0 z-50 w-full">
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
@@ -63,8 +63,8 @@ export default function Navigation() {
           </div>
 
           {/* Navigation Links */}
-          <div className="hidden md:block">
-            <div className="ml-10 flex items-center space-x-1">
+          <div className="hidden lg:block">
+            <div className="ml-10 flex items-center space-x-1 xl:ml-16">
               <Link
                 href="/products"
                 className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 focus:text-blue-600 focus:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -111,7 +111,7 @@ export default function Navigation() {
 
           {/* Auth Buttons */}
           <div className="hidden md:block">
-            <div className="ml-4 flex items-center md:ml-6 space-x-3">
+            <div className="ml-4 flex items-center md:ml-6 space-x-2 md:space-x-3 xl:ml-8">
               {isLoggedIn ? (
                 <div className="flex items-center space-x-3">
                 <button
@@ -232,12 +232,7 @@ export default function Navigation() {
       {/* Mobile menu */}
       <div className="md:hidden hidden" id="mobile-menu">
         <div className="px-4 pt-4 pb-3 space-y-2 bg-white border-t border-gray-100 shadow-lg">
-          <Link
-            href="/"
-            className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 block px-4 py-3 rounded-lg text-base font-medium transition-all duration-300"
-          >
-            Home
-          </Link>
+          
           <Link
             href="/products"
             className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 block px-4 py-3 rounded-lg text-base font-medium transition-all duration-300"
@@ -263,7 +258,7 @@ export default function Navigation() {
                 href="/dashboard/requests"
                 className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 px-4 py-3 rounded-lg text-base font-medium transition-all duration-300 flex items-center justify-between"
               >
-                <span>Rental Requests</span>
+                <span> My Rental Requests</span>
                 {pendingRequestsCount > 0 && (
                   <span className="bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center font-bold animate-pulse">
                     {pendingRequestsCount}
@@ -271,17 +266,35 @@ export default function Navigation() {
                 )}
               </Link>
               <Link
-                href="/rental-requests"
-                className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 block px-4 py-3 rounded-lg text-base font-medium transition-all duration-300"
-              >
-                My Requests
-              </Link>
-              <Link
                 href="/dashboard/revenue"
                 className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 block px-4 py-3 rounded-lg text-base font-medium transition-all duration-300"
               >
-                Revenue
+                My Revenue
               </Link> 
+              <Link
+                href="/dashboard/returns"
+                className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 block px-4 py-3 rounded-lg text-base font-medium transition-all duration-300"
+              >
+                My Returns
+              </Link> 
+              <Link
+                href="/rental-requests"
+                className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 block px-4 py-3 rounded-lg text-base font-medium transition-all duration-300"
+              >
+                Requests
+              </Link>
+              <Link
+                href="/invoices"
+                className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 block px-4 py-3 rounded-lg text-base font-medium transition-all duration-300"
+              >
+                Invoices
+              </Link>
+              <Link
+                href="/returns"
+                className="text-gray-700 hover:text-blue-600 hover:bg-blue-50 block px-4 py-3 rounded-lg text-base font-medium transition-all duration-300"
+              >
+                Returns
+              </Link>
             </>
           )}
 

@@ -257,10 +257,13 @@ export async function GET(request: NextRequest) {
       async () => {
         const offset = (page - 1) * limit;
 
-        // Build where clause based on filters - only show invoices where current user is the customer
+        // Build where clause based on filters - show invoices where current user is either customer or product owner
         const whereClause: Record<string, unknown> = {
           rentalRequest: {
-            customer_id: decoded.userId
+            OR: [
+              { customer_id: decoded.userId },
+              { product: { user_id: decoded.userId } } 
+            ]
           }
         };
 

@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { verifyToken } from '@/lib/auth';
 import { updateProductReturnSchema, createDamageAssessmentSchema, createDamagePhotoSchema } from '@/lib/validations';
 import { UpdateProductReturnRequest, CreateDamageAssessmentRequest, CreateDamagePhotoRequest, ApiResponse } from '@/types/models';
+import { NotificationService } from '@/lib/notifications';
 
 const prisma = new PrismaClient();
 
@@ -214,6 +215,17 @@ export async function PUT(request: NextRequest, props: RouteParams) {
             item_type: 'damage_fee'
           }
         });
+      }
+    }
+
+    // Send notification for return confirmation if return status is completed
+    if (validatedData.return_status === 'completed') {
+      try {
+        await NotificationService.notifyReturnConfirmed(updatedReturn.rentalRequest);
+        console.log(`Return confirmation notification sent to customer: ${updatedReturn.rentalRequest.customer.email}`);
+      } catch (notificationError) {
+        console.error('Failed to send return confirmation notification:', notificationError);
+        // Don't throw here as the return update has already succeeded
       }
     }
 

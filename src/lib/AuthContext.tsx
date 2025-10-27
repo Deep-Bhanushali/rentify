@@ -1,12 +1,28 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
+import { io, Socket } from 'socket.io-client';
 
 interface User {
   id: string;
   name: string;
   email: string;
   createdAt: string;
+}
+
+interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+  rentalRequest?: {
+    id: string;
+    product: {
+      title: string;
+    };
+  };
 }
 
 interface AuthContextType {
@@ -18,6 +34,10 @@ interface AuthContextType {
   updateUnreadNotificationsCount: (count: number) => void;
   pendingRequestsCount: number;
   unreadNotificationsCount: number;
+  socket: Socket | null;
+  isSocketConnected: boolean;
+  notifications: Notification[];
+  onNewNotification: (callback: (notification: Notification) => void) => () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -30,6 +50,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const notificationCallbacks = useRef<((notification: Notification) => void)[]>([]);
+
+  const socketRef = useRef<Socket | null>(null);
+  const connectionAttempted = useRef(false);
 
   const isLoggedIn = !!user;
 
@@ -96,7 +123,86 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  // Socket connection management
+  const connectSocket = (authToken?: string) => {
+    if (socketRef.current?.connected || connectionAttempted.current) return;
+
+    connectionAttempted.current = true;
+    const token = authToken || localStorage.getItem('token');
+
+    if (!token) {
+      console.warn('No token available for socket connection');
+      return;
+    }
+
+    console.log('Attempting socket connection with token...', {
+      hasToken: !!token,
+      tokenPreview: token ? token.substring(0, 20) + '...' : 'no-token'
+    });
+
+    const newSocket = io(process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3000', {
+      auth: {
+        token: token
+      },
+      autoConnect: true,
+      timeout: 10000,
+    });
+
+    newSocket.on('connect', () => {
+      console.log('✓ Connected to socket server successfully');
+      setIsSocketConnected(true);
+    });
+
+    newSocket.on('disconnect', (reason) => {
+      console.log('Disconnected from socket server:', reason);
+      setIsSocketConnected(false);
+    });
+
+    newSocket.on('new-notification', (notification: Notification) => {
+      console.log('📬 Received new notification:', notification.title);
+      setNotifications(prev => [notification, ...prev]);
+      setUnreadNotificationsCount(prev => prev + 1);
+
+      // Call all registered callbacks
+      notificationCallbacks.current.forEach(callback => callback(notification));
+    });
+
+    newSocket.on('connect_error', (error) => {
+      console.error('❌ Socket connection error:', error.message);
+      connectionAttempted.current = false;
+      // Reset connection attempt after a delay
+      setTimeout(() => {
+        connectionAttempted.current = false;
+      }, 5000);
+    });
+
+    socketRef.current = newSocket;
+    setSocket(newSocket);
+  };
+
+  const disconnectSocket = () => {
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+      connectionAttempted.current = false;
+    }
+    setSocket(null);
+    setIsSocketConnected(false);
+    setNotifications([]);
+  };
+
+  // Register notification callback
+  const onNewNotification = (callback: (notification: Notification) => void) => {
+    notificationCallbacks.current.push(callback);
+    return () => {
+      notificationCallbacks.current = notificationCallbacks.current.filter(cb => cb !== callback);
+    };
+  };
+
   const login = (token: string, userData?: User) => {
+    // Disconnect any existing socket first
+    disconnectSocket();
+
     localStorage.setItem('token', token);
 
     const user = userData || {
@@ -109,6 +215,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     localStorage.setItem('user', JSON.stringify(user));
     setUser(user);
 
+    // Connect socket immediately after login with fresh token
+    setTimeout(() => connectSocket(token), 100);
+
     // Fetch counts after login
     fetchPendingRequestsCount(token);
     fetchUnreadNotificationsCount(token);
@@ -120,6 +229,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(null);
     setPendingRequestsCount(0);
     setUnreadNotificationsCount(0);
+    disconnectSocket();
+    setNotifications([]);
   };
 
   const updatePendingRequestsCount = (count: number) => {
@@ -130,6 +241,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUnreadNotificationsCount(count);
   };
 
+  // Connect socket when user logs in (only for auto-login from localStorage)
+  useEffect(() => {
+    if (user && !socket) {
+      // Only connect if not already connecting (manual login handles connection)
+      connectSocket();
+    }
+  }, [user]);
+
+  // Disconnect socket when user logs out
+  useEffect(() => {
+    return () => {
+      disconnectSocket();
+    };
+  }, []);
+
   const value = {
     user,
     isLoggedIn,
@@ -139,6 +265,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     updateUnreadNotificationsCount,
     pendingRequestsCount,
     unreadNotificationsCount,
+    socket,
+    isSocketConnected,
+    notifications,
+    onNewNotification,
   };
 
   return (

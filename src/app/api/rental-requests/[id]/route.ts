@@ -207,7 +207,6 @@ export async function PUT(request: NextRequest, props: RouteParams) {
 
     // Revalidate caches when rental request status is updated
     revalidateTag('rental-requests');
-    revalidateTag('notifications');
 
     const response: ApiResponse<RentalRequest> = {
       success: true,
@@ -309,7 +308,6 @@ export async function DELETE(request: NextRequest, props: RouteParams) {
 
     // Revalidate caches
     revalidateTag('rental-requests');
-    revalidateTag('notifications');
 
     const response: ApiResponse = {
       success: true,

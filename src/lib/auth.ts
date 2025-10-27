@@ -3,9 +3,9 @@ import jwt from 'jsonwebtoken';
 import { User, LoginRequest, SignupRequest } from '../types/auth';
 import { PrismaClient } from '@prisma/client';
 import { NextRequest } from 'next/server';
+import { JWT_SECRET, JWT_EXPIRES_IN } from './config';
 
 const prisma = new PrismaClient();
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
@@ -19,7 +19,7 @@ export function generateToken(user: User): string {
   return jwt.sign(
     { userId: user.id, email: user.email },
     JWT_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn: JWT_EXPIRES_IN }
   );
 }
 
@@ -48,7 +48,6 @@ export function getCurrentUser(request: NextRequest): { userId: string; email: s
 
 export async function createUser(userData: SignupRequest): Promise<User> {
   try {
-    // Test database connection first
     await prisma.$connect();
 
     const hashedPassword = await hashPassword(userData.password);

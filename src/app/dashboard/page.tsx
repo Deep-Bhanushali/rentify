@@ -251,7 +251,7 @@ export default function Dashboard() {
           </div>
 
           {/* Stats grid skeleton */}
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {Array.from({ length: 7 }, (_, i) => (
               <div key={i} className="bg-white rounded-lg shadow p-5 animate-pulse">
                 <div className="flex items-center">
@@ -268,7 +268,7 @@ export default function Dashboard() {
           {/* Download Statistics skeleton */}
           <div className="bg-white shadow rounded-lg p-6 animate-pulse">
             <div className="h-5 bg-gray-300 rounded w-64 mb-4"></div>
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5 mb-6">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 mb-6">
               {Array.from({ length: 5 }, (_, i) => (
                 <div key={i} className="p-4 rounded-lg bg-gray-100">
                   <div className="h-4 bg-gray-300 rounded w-24 mb-2"></div>
@@ -405,7 +405,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stats grid */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           <MetricCard
             title="Total Products"
             value={stats.totalProducts}

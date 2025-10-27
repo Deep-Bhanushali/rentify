@@ -31,10 +31,27 @@ export default function InvoiceDetailPage() {
   const [paying, setPaying] = useState(false);
   const [paymentTimer, setPaymentTimer] = useState<number>(0);
   const [paymentExpiresAt, setPaymentExpiresAt] = useState<Date | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const params = useParams();
   const router = useRouter();
   const invoiceId = params.id as string;
+
+  // Get current user ID on mount
+  useEffect(() => {
+    const getCurrentUser = () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          const decoded = JSON.parse(atob(token.split('.')[1])); // Decode JWT payload
+          setCurrentUserId(decoded.userId);
+        }
+      } catch (err) {
+        console.error('Failed to decode user token:', err);
+      }
+    };
+    getCurrentUser();
+  }, []);
 
   useEffect(() => {
     fetchInvoice();
@@ -480,7 +497,14 @@ export default function InvoiceDetailPage() {
             <InvoiceComponent
               invoice={invoice as any}
               onDownload={handlePrint} // No-op - PDF download removed
-              onPay={invoice.invoice_status !== 'paid' && invoice.invoice_status !== 'cancelled' ? handlePayInvoice : undefined}
+              onPay={
+                invoice.invoice_status !== 'paid' &&
+                invoice.invoice_status !== 'cancelled' &&
+                currentUserId === invoice.rentalRequest?.customer_id
+                  ? handlePayInvoice
+                  : undefined
+              }
+              currentUserId={currentUserId}
             />
           </div>
         </div>
@@ -513,13 +537,20 @@ export default function InvoiceDetailPage() {
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-lg font-semibold text-gray-800 mb-4">Invoice Actions</h2>
             <div className="space-y-3">
-              {invoice.invoice_status !== 'paid' && invoice.invoice_status !== 'cancelled' && (
+              {invoice.invoice_status !== 'paid' && invoice.invoice_status !== 'cancelled' && currentUserId === invoice.rentalRequest?.customer_id && (
                 <button
                   onClick={handlePayInvoice}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                  disabled={paying}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
                 >
-                  Pay Invoice
+                  {paying ? 'Processing...' : 'Pay Invoice'}
                 </button>
+              )}
+
+              {invoice.invoice_status === 'paid' && currentUserId !== invoice.rentalRequest?.customer_id && (
+                <div className="w-full px-4 py-2 bg-green-100 text-green-800 rounded-md text-center">
+                  Invoice Paid by Customer
+                </div>
               )}
 
               <button

@@ -362,7 +362,6 @@ export async function POST(request: NextRequest) {
 
     // Revalidate caches when new rental request is created
     revalidateTag('rental-requests');
-    revalidateTag('notifications');
 
     const response: ApiResponse<RentalRequest> = {
       success: true,

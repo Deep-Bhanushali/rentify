@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Bell, Check, X, Calendar, DollarSign, AlertCircle } from 'lucide-react';
+import { useAuth } from '@/lib/AuthContext';
 
 interface Notification {
   id: string;
@@ -25,35 +26,64 @@ interface NotificationDropdownProps {
 }
 
 export function NotificationDropdown({ unreadCount, onMarkAllRead, onMarkRead }: NotificationDropdownProps) {
+  const { notifications: realTimeNotifications, onNewNotification } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
-  // Fetch notifications
-  const fetchNotifications = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
+  // Update local notifications when real-time notifications change
+  useEffect(() => {
+    setNotifications(realTimeNotifications.slice(0, 10)); // Show latest 10
+  }, [realTimeNotifications]);
 
-      const response = await fetch('/api/notifications?limit=10', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+  // Fetch initial notifications on mount
+  useEffect(() => {
+    const fetchInitialNotifications = async () => {
+      setLoading(true);
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
 
-      if (response.ok) {
-        const data = await response.json();
-        setNotifications(data.data || []);
+        const response = await fetch('/api/notifications?limit=10', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setNotifications(data.data || []);
+        }
+      } catch (error) {
+        console.error('Error fetching notifications:', error);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
-    } finally {
-      setLoading(false);
+    };
+
+    if (realTimeNotifications.length === 0) {
+      fetchInitialNotifications();
     }
-  };
+  }, [realTimeNotifications.length]);
+
+  // Listen for new notifications
+  useEffect(() => {
+    const unsubscribe = onNewNotification((newNotification) => {
+      // Play notification sound (optional)
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(newNotification.title, {
+          body: newNotification.message,
+        });
+      }
+
+      // Update local state immediately
+      setNotifications(prev => [newNotification, ...prev.slice(0, 9)]);
+    });
+
+    return unsubscribe;
+  }, [onNewNotification]);
 
   // Mark single notification as read
   const markAsRead = async (notificationId: string) => {
@@ -86,9 +116,6 @@ export function NotificationDropdown({ unreadCount, onMarkAllRead, onMarkRead }:
   // Toggle dropdown
   const toggleDropdown = () => {
     setIsOpen(!isOpen);
-    if (!isOpen) {
-      fetchNotifications();
-    }
   };
 
   // Close dropdown when clicking outside

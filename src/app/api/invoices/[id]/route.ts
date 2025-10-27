@@ -72,15 +72,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json(response, { status: 404 });
     }
 
-    // Check if user is authorized to view this invoice - only customers can view (for the new flow)
-    if (invoice.rentalRequest.customer_id !== decoded.userId) {
-      const response: ApiResponse = {
-        success: false,
-        message: 'Unauthorized to view this invoice'
-      };
-      return NextResponse.json(response, { status: 403 });
-    }
-
     const response: ApiResponse<Invoice> = {
       success: true,
       message: 'Invoice retrieved successfully',

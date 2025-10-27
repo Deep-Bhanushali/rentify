@@ -71,7 +71,11 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
       include: {
         rentalRequest: {
           include: {
-            product: true,
+            product: {
+              include: {
+                user: true
+              }
+            },
             customer: true
           }
         }
@@ -90,7 +94,16 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
         payment_status: 'completed',
       },
       include: {
-        rentalRequest: true
+        rentalRequest: {
+          include: {
+            product: {
+              include: {
+                user: true
+              }
+            },
+            customer: true
+          }
+        }
       }
     });
 

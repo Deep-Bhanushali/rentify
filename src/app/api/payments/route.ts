@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
       paymentAttempt = await prisma.paymentAttempt.update({
         where: { rental_request_id: rental_request_id },
         data: {
-          expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now
+          expires_at: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes from now
           is_active: true
         }
       });
@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
           rental_request_id: rental_request_id,
           start_date: rentalRequest.start_date,
           end_date: rentalRequest.end_date,
-          expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes from now
+          expires_at: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes from now
           is_active: true
         }
       });
@@ -226,7 +226,7 @@ export async function POST(request: NextRequest) {
               where: { id: pendingPayment.id },
               data: {
                 payment_status: 'failed',
-                notes: `Payment expired after 10 minutes. Expires at: ${attempt.expires_at.toISOString()}`
+                notes: `Payment expired after 5 minutes. Expires at: ${attempt.expires_at.toISOString()}`
               }
             });
 

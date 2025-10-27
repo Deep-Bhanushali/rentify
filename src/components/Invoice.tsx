@@ -30,6 +30,7 @@ interface InvoiceProps {
   showActions?: boolean;
   onDownload?: () => void;
   onPay?: () => void;
+  currentUserId?: string | null;
 }
 
 export default function Invoice({ 

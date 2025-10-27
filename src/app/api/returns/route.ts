@@ -5,6 +5,7 @@ import { createProductReturnSchema } from '@/lib/validations';
 import { CreateProductReturnRequest, ApiResponse } from '@/types/models';
 
 const prisma = new PrismaClient();
+import { NotificationService } from '@/lib/notifications';
 
 // POST /api/returns - Create a new product return
 export async function POST(request: NextRequest) {
@@ -35,7 +36,11 @@ export async function POST(request: NextRequest) {
     const rentalRequest = await prisma.rentalRequest.findUnique({
       where: { id: validatedData.rental_request_id },
       include: {
-        product: true,
+        product: {
+          include: {
+            user: true
+          }
+        },
         customer: true
       }
     });
@@ -97,6 +102,15 @@ export async function POST(request: NextRequest) {
         }
       }
     });
+
+    // Send notification to product owner that return has been initiated
+    try {
+      await NotificationService.notifyReturnInitiated(rentalRequest);
+      console.log(`Return initiated notification sent to owner: ${rentalRequest.product.user.email}`);
+    } catch (notificationError) {
+      console.error('Failed to send return initiated notification:', notificationError);
+      // Don't throw here as the return creation has already succeeded
+    }
 
     const response: ApiResponse = {
       success: true,

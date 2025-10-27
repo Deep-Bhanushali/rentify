@@ -43,7 +43,7 @@ export class NotificationService {
       });
 
       // Emit real-time notification via socket server HTTP endpoint
-      const socketServerUrl = process.env.SOCKET_SERVER_URL || 'http://localhost:3001';
+      const socketServerUrl = process.env.SOCKET_SERVER_URL;
       try {
         await fetch(`${socketServerUrl}/emit-notification`, {
           method: 'POST',

@@ -161,7 +161,7 @@ export async function GET(request: NextRequest) {
       },
       [`dashboard-upcoming-events-${decoded.userId}`],
       {
-        revalidate: 90, // Revalidate every 60 seconds
+        revalidate: 60, // Revalidate every 60 seconds
         tags: ['dashboard'] // Tag for cache invalidation
       }
     )();

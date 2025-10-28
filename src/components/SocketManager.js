@@ -27,6 +27,11 @@ const SocketManager = ({ children }) => {
       socketRef.current.on('connect_error', (error) => {
         console.log('Socket connection error:', error.message);
       });
+
+      socketRef.current.on('notification', (notification) => {
+        console.log('⬇️ SocketManager received notification via socket:', notification);
+        // Note: AuthContext will handle the notification update
+      });
     }
 
     return () => {

@@ -354,7 +354,7 @@ export class NotificationService {
     }
   }
 
-  // Create notification for return confirmation (to customer)
+  // Create notification for return confirmation (to customer AND owner)
   static async notifyReturnConfirmed(rentalRequest: any) {
     try {
       // Notify the customer
@@ -386,10 +386,57 @@ export class NotificationService {
           text: emailData.text,
         });
       } catch (emailError) {
-        console.error('Error sending return confirmation email:', emailError);
+        console.error('Error sending return confirmation email to customer:', emailError);
+      }
+
+      // Notify the product owner that their product is now available
+      await this.createNotification({
+        userId: rentalRequest.product.user_id,
+        type: 'product_available',
+        title: 'Product Returned - Available for Rent',
+        message: `Your product "${rentalRequest.product.title}" has been returned and is now available for new rentals.`,
+        rentalRequestId: rentalRequest.id,
+        data: {
+          productTitle: rentalRequest.product.title,
+          productId: rentalRequest.product.id,
+          customerName: rentalRequest.customer.name,
+          returnDate: rentalRequest.productReturn?.return_date || new Date(),
+          availabilityStatus: 'available',
+        },
+      });
+
+      // Send email to product owner
+      try {
+        await emailService.sendEmail({
+          to: rentalRequest.product.user.email,
+          subject: 'Your Product is Available for Rent Again',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h1 style="color: #2563eb;">Product Returned & Available</h1>
+              <p>Hi ${rentalRequest.product.user.name},</p>
+              <p>Great news! Your product "<strong>${rentalRequest.product.title}</strong>" has been successfully returned by ${rentalRequest.customer.name}.</p>
+
+              <div style="background-color: #f3f4f6; padding: 15px; margin: 15px 0; border-radius: 8px;">
+                <h3 style="margin-top: 0; color: #059669;">✅ Product Status: Available for Rent</h3>
+                <p>You can now list this product for new rental requests or accept pending requests.</p>
+              </div>
+
+              <p>Check your dashboard to see all your available products and any pending rental requests.</p>
+
+              <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 14px;">
+                <p>Need help? Contact our support team at any time.</p>
+                <p>Happy renting!</p>
+                <p><strong>Rentify Team</strong></p>
+              </div>
+            </div>
+          `,
+          text: `Hi ${rentalRequest.product.user.name}, your product "${rentalRequest.product.title}" has been returned by ${rentalRequest.customer.name} and is now available for rent again.`,
+        });
+      } catch (emailError) {
+        console.error('Error sending product availability email to owner:', emailError);
       }
     } catch (error) {
-      console.error('Error creating return confirmation notification:', error);
+      console.error('Error creating return confirmation notifications:', error);
     }
   }
 

@@ -122,7 +122,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Socket connection management - use global socket from SocketManager
   useEffect(() => {
-    if (typeof window !== 'undefined' && (window as any).socket) {
+    if (user && typeof window !== 'undefined' && (window as any).socket) {
       const globalSocket = (window as any).socket as Socket;
 
       setSocket(globalSocket);
@@ -138,7 +138,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       };
 
       const handleNotification = (notification: Notification) => {
-        console.log('📬 Received new notification:', notification.title);
+        console.log('📬 Received new notification via socket:', notification.title);
 
         // Add default properties if missing
         const completeNotification: Notification = {
@@ -147,13 +147,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
           createdAt: notification.createdAt || new Date().toISOString(),
         };
 
-        setNotifications(prev => [completeNotification, ...prev]);
+        setNotifications(prev => {
+          const newNotifications = [completeNotification, ...prev];
+          console.log('📱 Updated notifications state (socket), count:', newNotifications.length);
+          // Force re-render by ensuring reference changes
+          return [...newNotifications];
+        });
         setUnreadNotificationsCount(prev => prev + 1);
 
         // Call all registered callbacks
-
-        // Call all registered callbacks
         notificationCallbacks.current.forEach(callback => callback(completeNotification));
+        console.log('📬 Called notification callbacks');
       };
 
       const handleConnectError = (error: { message: string }) => {
@@ -177,11 +181,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         globalSocket.off('connect_error', handleConnectError);
       };
     }
-  }, []);
+  }, [user]);
 
 
 
-  // Notification polling every 60 seconds (no caching)
+  // Notification polling every 60 seconds - merge with real-time data
   useEffect(() => {
     if (!user) return;
 
@@ -199,14 +203,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (response.ok) {
           const data = await response.json();
           if (data.success && data.data) {
-            const newNotifications = data.data;
+            const polledNotifications = data.data;
             const newUnreadCount = data.unreadCount || 0;
 
-            // Update notifications and count with fresh data
-            setNotifications(newNotifications);
+            // Merge notifications: prefer real-time notifications, supplement with polled data
+            setNotifications(prev => {
+              // Create a map of existing notifications for fast lookup
+              const existingMap = new Map(prev.map(n => [n.id, n]));
+              const mergedNotifications = [...prev];
+
+              // Add any missing notifications from poll (but don't replace existing ones)
+              polledNotifications.forEach((polledNotif) => {
+                if (!existingMap.has(polledNotif.id)) {
+                  mergedNotifications.push(polledNotif as Notification);
+                }
+              });
+
+              // Sort by creation date (newest first) and limit to 20
+              return mergedNotifications
+                .sort((a: Notification, b: Notification) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                .slice(0, 20);
+            });
+
+            // Update unread count
             setUnreadNotificationsCount(newUnreadCount);
 
-            console.log('📬 Fetched notifications from API');
+            console.log('📬 Merged notifications from API poll');
           }
         }
       } catch (error) {
@@ -217,7 +239,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Initial fetch
     fetchNotifications();
 
-    // Set up periodic polling every 60 seconds
+    // Set up periodic polling every 60 seconds - system-wide cache revalidation baseline
     const interval = setInterval(fetchNotifications, 60000);
 
     return () => clearInterval(interval);

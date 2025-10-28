@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import DashboardLayout from '@/components/DashboardLayout';
 import type { ProductReturn, DamageAssessment, CreateDamageAssessmentRequest, UpdateDamageAssessmentRequest, CreateDamagePhotoRequest } from '@/types/models';
 import DamageAssessmentComponent from '@/components/DamageAssessment';
-import { NotificationService } from '@/lib/notifications';
+
 import {
   CheckCircle,
   Clock,
@@ -208,9 +208,7 @@ export default function DashboardReturnsPage() {
         });
 
         if (rentalResponse.ok && returnItem.rentalRequest) {
-          // Notify the customer that the return is confirmed
-          await NotificationService.notifyReturnConfirmed(returnItem.rentalRequest);
-          console.log(`Return confirmation notification sent to customer: ${returnItem.rentalRequest.customer.email}`);
+          console.log(`Return confirmation API call successful, notifications handled on server side`);
         }
       }
 

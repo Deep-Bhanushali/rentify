@@ -326,7 +326,7 @@ export async function GET(request: NextRequest) {
       },
       [cacheKey],
       {
-        revalidate: 300, // Cache for 5 minutes
+        revalidate: 120, // Cache for 5 minutes
         tags: ['invoices', `user-${decoded.userId}`] // Tag for cache invalidation
       }
     )();

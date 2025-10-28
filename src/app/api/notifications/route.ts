@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
       },
       [`notifications-${decoded.userId}-${unreadOnly}-${limit}`],
       {
-        revalidate: 10,
+        revalidate: 30,
         tags: ['notifications']
       }
     );
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       },
       [`notification-count-${decoded.userId}`],
       {
-        revalidate: 60,
+        revalidate: 30,
         tags: ['notifications']
       }
     );
@@ -83,8 +83,8 @@ export async function GET(request: NextRequest) {
       unreadCount
     });
 
-    // Add caching headers
-    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+    // Add caching headers - align with system-wide 60-second baseline
+    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=86400');
 
     return response;
   } catch (error) {

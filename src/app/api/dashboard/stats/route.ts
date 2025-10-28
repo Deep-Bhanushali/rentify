@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(response, { status: 401 });
     }
 
-    // Cache dashboard statistics for 60 seconds
+    // Cache dashboard statistics for 60 seconds - system-wide baseline
     const stats = await unstable_cache(
       async () => {
         // Get user's products
@@ -114,8 +114,8 @@ export async function GET(request: NextRequest) {
       },
       [`dashboard-stats-${decoded.userId}`],
       {
-        revalidate: 90,
-        tags: ['dashboard'] 
+        revalidate: 60,
+        tags: ['dashboard']
       }
     )();
 
@@ -127,8 +127,8 @@ export async function GET(request: NextRequest) {
 
     const nextResponse = NextResponse.json(response, { status: 200 });
 
-    // Add caching headers
-    nextResponse.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+    // Add caching headers - align with system-wide 60-second baseline
+    nextResponse.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=86400');
 
     return nextResponse;
   } catch (error: unknown) {

@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(response, { status: 401 });
     }
 
-    // Cache download statistics for 60 seconds
+    // Cache download statistics for 60 seconds - system-wide baseline
     const downloadStats = await unstable_cache(
       async () => {
         // Get user's products
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
       },
       [`dashboard-download-stats-${decoded.userId}`],
       {
-        revalidate: 90, // Revalidate every 60 seconds
+        revalidate: 60, // System-wide cache revalidation baseline
         tags: ['dashboard'] // Tag for cache invalidation
       }
     )();

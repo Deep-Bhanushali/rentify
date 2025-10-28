@@ -34,41 +34,13 @@ export function NotificationDropdown({ unreadCount, onMarkAllRead, onMarkRead }:
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   // Update local notifications when real-time notifications change
+  // Use the AuthContext notifications as the single source of truth
   useEffect(() => {
+    // console.log('🔄 NotificationDropdown syncing notifications, count:', realTimeNotifications.length, 'time:', Date.now());
     setNotifications(realTimeNotifications.slice(0, 10)); // Show latest 10
   }, [realTimeNotifications]);
 
-  // Fetch initial notifications on mount
-  useEffect(() => {
-    const fetchInitialNotifications = async () => {
-      setLoading(true);
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
-
-        const response = await fetch('/api/notifications?limit=10', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setNotifications(data.data || []);
-        }
-      } catch (error) {
-        console.error('Error fetching notifications:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (realTimeNotifications.length === 0) {
-      fetchInitialNotifications();
-    }
-  }, [realTimeNotifications.length]);
-
-  // Listen for new notifications
+  // Listen for new notifications (for browser notifications)
   useEffect(() => {
     const unsubscribe = onNewNotification((newNotification) => {
       // Play notification sound (optional)
@@ -77,9 +49,6 @@ export function NotificationDropdown({ unreadCount, onMarkAllRead, onMarkRead }:
           body: newNotification.message,
         });
       }
-
-      // Update local state immediately
-      setNotifications(prev => [newNotification, ...prev.slice(0, 9)]);
     });
 
     return unsubscribe;
@@ -213,7 +182,7 @@ export function NotificationDropdown({ unreadCount, onMarkAllRead, onMarkRead }:
           {!loading && (
             <div className="max-h-96 overflow-y-auto">
               {notifications.length > 0 ? (
-                notifications.map((notification) => (
+                notifications.map((notification, index) => (
                   <div
                     key={notification.id}
                     className={`px-4 py-3 border-l-4 ${getNotificationColor(notification.type)} ${

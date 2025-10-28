@@ -228,7 +228,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
             // Update unread count
             setUnreadNotificationsCount(newUnreadCount);
 
-            console.log('📬 Merged notifications from API poll');
           }
         }
       } catch (error) {

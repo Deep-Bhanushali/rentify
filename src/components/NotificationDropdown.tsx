@@ -30,7 +30,6 @@ export function NotificationDropdown({ unreadCount, onMarkAllRead, onMarkRead }:
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
-  const [hasNewNotification, setHasNewNotification] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -79,22 +78,12 @@ export function NotificationDropdown({ unreadCount, onMarkAllRead, onMarkRead }:
         });
       }
 
-      // Show blink effect for new notification
-      setHasNewNotification(true);
-
       // Update local state immediately
       setNotifications(prev => [newNotification, ...prev.slice(0, 9)]);
     });
 
     return unsubscribe;
   }, [onNewNotification]);
-
-  // Stop blinking when dropdown is opened
-  useEffect(() => {
-    if (isOpen && hasNewNotification) {
-      setHasNewNotification(false);
-    }
-  }, [isOpen, hasNewNotification]);
 
   // Mark single notification as read
   const markAsRead = async (notificationId: string) => {
@@ -184,19 +173,13 @@ export function NotificationDropdown({ unreadCount, onMarkAllRead, onMarkRead }:
       <button
         ref={buttonRef}
         type="button"
-        className={`relative rounded-full bg-white p-1 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:text-blue-600 focus:bg-blue-50 ${
-          hasNewNotification ? 'animate-pulse' : ''
-        }`}
+        className="relative rounded-full bg-white p-1 text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:text-blue-600 focus:bg-blue-50"
         onClick={toggleDropdown}
       >
         <span className="sr-only">View notifications</span>
-        <Bell className={`h-6 w-6 ${hasNewNotification ? 'text-blue-600' : ''} ${
-          hasNewNotification ? 'animate-bounce' : ''
-        }`} />
+        <Bell className="h-6 w-6" />
         {unreadCount > 0 && (
-          <span className={`absolute top-0 right-0 block h-2 w-2 rounded-full ring-2 ring-white ${
-            hasNewNotification ? 'animate-ping' : 'bg-red-400'
-          }`} />
+          <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-400 ring-2 ring-white" />
         )}
       </button>
 
